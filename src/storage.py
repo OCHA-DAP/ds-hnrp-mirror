@@ -1,4 +1,4 @@
-"""DB layer: hnrp schema on the team Postgres via ocha-stratus.
+"""DB layer: hpc schema on the team Postgres via ocha-stratus.
 
 Stage is selected with the STAGE env var (default "dev"). Writers need the
 *_UID_WRITE / *_PW_WRITE credentials; PGSSLMODE=require is enforced here.
@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
-SCHEMA = "hnrp"
+SCHEMA = "hpc"
 STAGE = os.environ.get("STAGE", "dev")
 
 PLAN_COLS = [

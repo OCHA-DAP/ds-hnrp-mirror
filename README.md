@@ -1,7 +1,7 @@
 # ds-hnrp-mirror
 
 Mirror of OCHA **HNRP/HRP plan data and People in Need (PiN)** figures in the team
-Postgres (dev, schema `hnrp`), refreshed automatically, with a
+Postgres (dev, schema `hpc`), refreshed automatically, with a
 [GitHub Pages explorer](https://ocha-dap.github.io/ds-hnrp-mirror/).
 
 ## Sources
@@ -32,11 +32,11 @@ Postgres (dev, schema `hnrp`), refreshed automatically, with a
   `*_hpc_needs_api_<year>.csv`). If HAPI were ever discontinued, swapping `src/hapi.py`
   to read those CSVs is a small change; the DB schema would not change.
 
-## Tables (dev DB, schema `hnrp`)
+## Tables (dev DB, schema `hpc`)
 
-- `hnrp.plans` — one row per plan: metadata, requirements, FTS funding, plan-level caseload totals. PK `plan_id`.
-- `hnrp.plan_caseloads` — cluster-level caseloads + requirements. PK `(plan_id, entity_id)`.
-- `hnrp.needs_admin` — HAPI humanitarian-needs mirror (admin 0–2 × sector × category × status). Full replace on refresh.
+- `hpc.plans` — one row per plan: metadata, requirements, FTS funding, plan-level caseload totals. PK `plan_id`.
+- `hpc.plan_caseloads` — cluster-level caseloads + requirements. PK `(plan_id, entity_id)`.
+- `hpc.needs_admin` — HAPI humanitarian-needs mirror (admin 0–2 × sector × category × status). Full replace on refresh.
 
 ## Pipelines (GitHub Actions)
 
