@@ -12,9 +12,25 @@ Postgres (dev, schema `hnrp`), refreshed automatically, with a
 | [FTS](https://api.hpc.tools/v1/public/fts/flow) | Reported funding per plan | plan | all years |
 | [HDX HAPI](https://hapi.humdata.org) `affected-people/humanitarian-needs` | PiN by admin area, sector, category, population status (Global HNO) | up to **admin-2** | 2024+ (~24 HNRP countries) |
 
-HAPI is the most granular *standardized* public source. The HPC API also exposes raw
-per-plan disaggregation matrices (admin-level, plan-specific categories, ~MBs per
-attachment) — not mirrored in v1; see `src/hpc.py` if we ever want it.
+### Coverage notes
+
+- The HPC mirror covers **every plan type** — HNRPs/HRPs, **flash appeals**, regional
+  response plans, and "other" appeals — for all years, at plan and cluster level.
+- HAPI's admin-level PiN covers only **Global HNO countries** (~24 HNRPs, 2024+).
+  Flash-appeal countries (e.g. OPT, Lebanon 2025) and RRPs have **no standardized
+  admin-level PiN** there — for those, plan/cluster level (the HPC mirror) is the most
+  granular public data.
+- **Historical admin-level PiN (pre-2024)** exists publicly but not in standardized
+  form: per-country `*_hpc_needs_<year>.xlsx` files (hand-formatted, heterogeneous)
+  on HDX under the [`ocha-hpc-tools` org](https://data.humdata.org/organization/hpc-tools)
+  (some back to 2015), and raw HPC API disaggregation matrices
+  (`?disaggregation=true`, plan-specific categories, ~8 MB/attachment). Both are
+  bespoke-parsing projects — candidates for a later phase, not mirrored in v1.
+- **HAPI resilience**: the same humanitarian-needs data is also published as flat
+  CSVs on HDX ([`hdx-hapi-humanitarian-needs`](https://data.humdata.org/dataset/hdx-hapi-humanitarian-needs),
+  [`global-hpc-hno`](https://data.humdata.org/dataset/global-hpc-hno), and per-country
+  `*_hpc_needs_api_<year>.csv`). If HAPI were ever discontinued, swapping `src/hapi.py`
+  to read those CSVs is a small change; the DB schema would not change.
 
 ## Tables (dev DB, schema `hnrp`)
 

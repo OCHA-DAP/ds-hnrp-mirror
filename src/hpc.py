@@ -113,14 +113,18 @@ def parse_plan(detail, year, funding_total=None):
             if loc.get("adminLevel") == 0 and loc.get("iso3")
         }
     )
-    categories = detail.get("categories") or []
+    # categories mixes several groups (planType, planLanguage, planClusterType)
+    plan_type = next(
+        (c.get("name") for c in detail.get("categories") or [] if c.get("group") == "planType"),
+        None,
+    )
 
     plan_row = {
         "plan_id": detail["id"],
         "code": pv.get("code"),
         "name": pv.get("name"),
         "short_name": pv.get("shortName"),
-        "plan_type": categories[0].get("name") if categories else None,
+        "plan_type": plan_type,
         "iso3": ";".join(iso3s) or None,
         "year": year,
         "start_date": pv.get("startDate"),
