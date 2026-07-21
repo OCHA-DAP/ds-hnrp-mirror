@@ -1,0 +1,57 @@
+name: Refresh HNRP mirror
+
+on:
+  schedule:
+    - cron: "17 4 * * *" # daily: current/previous/next plan years
+    - cron: "47 2 * * 0" # weekly (Sun): full historical backfill
+  workflow_dispatch:
+    inputs:
+      all_years:
+        description: "Refresh all years (full backfill)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  hpc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install --no-sources -e .
+      - name: Refresh HPC plans + caseloads + funding
+        env:
+          DSCI_AZ_DB_DEV_HOST: ${{ secrets.DSCI_AZ_DB_DEV_HOST }}
+          DSCI_AZ_DB_DEV_UID_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_UID_WRITE }}
+          DSCI_AZ_DB_DEV_PW_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_PW_WRITE }}
+          PGSSLMODE: require
+        run: |
+          if [ "${{ github.event.schedule }}" = "47 2 * * 0" ] || [ "${{ inputs.all_years }}" = "true" ]; then
+            uv run --no-sync python scripts/refresh_hpc.py --all
+          else
+            uv run --no-sync python scripts/refresh_hpc.py
+          fi
+
+  hapi:
+    runs-on: ubuntu-latest
+    needs: hpc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install --no-sources -e .
+      - name: Refresh HAPI admin-level PiN
+        env:
+          DSCI_AZ_DB_DEV_HOST: ${{ secrets.DSCI_AZ_DB_DEV_HOST }}
+          DSCI_AZ_DB_DEV_UID_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_UID_WRITE }}
+          DSCI_AZ_DB_DEV_PW_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_PW_WRITE }}
+          HAPI_APP_IDENTIFIER: ${{ secrets.HAPI_APP_IDENTIFIER }}
+          PGSSLMODE: require
+        run: uv run --no-sync python scripts/refresh_hapi.py

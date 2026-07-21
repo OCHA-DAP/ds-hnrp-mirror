@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HNRP / PiN explorer</title>
+<style>
+  :root { --blue: #007ce0; --ink: #1a1a1a; --muted: #6b7280; --line: #e5e7eb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
+  header { padding: 1rem 1.5rem; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+  header h1 { font-size: 1.15rem; margin: 0; }
+  header .sub { color: var(--muted); font-size: 0.85rem; }
+  main { padding: 1rem 1.5rem 3rem; max-width: 1200px; margin: 0 auto; }
+  .tabs { display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem; }
+  .tabs button { border: 1px solid var(--line); background: #fff; padding: 0.4rem 1rem; border-radius: 999px; cursor: pointer; font-size: 0.9rem; }
+  .tabs button.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .controls { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; align-items: center; }
+  .controls select, .controls input { padding: 0.35rem 0.5rem; border: 1px solid var(--line); border-radius: 6px; font-size: 0.9rem; }
+  .controls input[type=search] { min-width: 220px; }
+  .controls .dl { margin-left: auto; }
+  button.dl { background: #fff; border: 1px solid var(--blue); color: var(--blue); border-radius: 6px; padding: 0.35rem 0.8rem; cursor: pointer; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: #f9fafb; position: sticky; top: 0; cursor: pointer; user-select: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.planrow { cursor: pointer; }
+  tr.planrow:hover { background: #f3f8fd; }
+  tr.detail td { background: #f9fafb; white-space: normal; }
+  .clustertable { margin: 0.25rem 0; }
+  .clustertable td, .clustertable th { border: none; padding: 0.2rem 0.6rem; font-size: 0.8rem; }
+  .note { color: var(--muted); font-size: 0.8rem; margin-top: 0.6rem; }
+  .count { color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>HNRP / People in Need explorer</h1>
+  <span class="sub">OCHA HPC plans &amp; admin-level PiN · mirror refreshed daily · <span id="generated"></span></span>
+</header>
+<main>
+  <div class="tabs">
+    <button id="tab-plans" class="active">Plans</button>
+    <button id="tab-needs">Admin-level PiN</button>
+  </div>
+
+  <section id="pane-plans">
+    <div class="controls">
+      <select id="plan-year"></select>
+      <input type="search" id="plan-search" placeholder="Search plan / country…">
+      <span class="count" id="plan-count"></span>
+      <button class="dl" id="plan-dl">Download CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="plan-table">
+        <thead><tr>
+          <th data-k="year" class="num">Year</th><th data-k="iso3">ISO3</th>
+          <th data-k="name">Plan</th><th data-k="plan_type">Type</th>
+          <th data-k="in_need" class="num">In need</th>
+          <th data-k="targeted" class="num">Targeted</th>
+          <th data-k="revised_requirements" class="num">Requirements ($)</th>
+          <th data-k="funding_total" class="num">Funded ($)</th>
+          <th data-k="pct_funded" class="num">% funded</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Click a plan for its cluster breakdown. Source: HPC API (api.hpc.tools) — plan caseloads, requirements and FTS funding.</p>
+  </section>
+
+  <section id="pane-needs" hidden>
+    <div class="controls">
+      <select id="needs-country"></select>
+      <select id="needs-year"></select>
+      <select id="needs-level">
+        <option value="">All admin levels</option>
+        <option value="0">National (adm0)</option>
+        <option value="1">Admin 1</option>
+        <option value="2">Admin 2</option>
+      </select>
+      <select id="needs-sector"></select>
+      <select id="needs-status"></select>
+      <input type="search" id="needs-search" placeholder="Search admin name…">
+      <span class="count" id="needs-count"></span>
+      <button class="dl" id="needs-dl">Download CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="needs-table">
+        <thead><tr>
+          <th>Lvl</th><th>Admin 1</th><th>Admin 2</th><th>Sector</th>
+          <th>Category</th><th>Status</th><th class="num">People</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Source: HDX HAPI <code>affected-people/humanitarian-needs</code> (OCHA Global HNO). Status codes: INN&nbsp;=&nbsp;in need, TGT&nbsp;=&nbsp;targeted, AFF&nbsp;=&nbsp;affected, REA&nbsp;=&nbsp;reached. Rows are shown as published — categories overlap, so do not sum across category rows.</p>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt = (v) => v == null ? "" : Intl.NumberFormat("en", {notation: "compact", maximumFractionDigits: 1}).format(v);
+const fmtFull = (v) => v == null ? "" : Intl.NumberFormat("en").format(v);
+
+function toCSV(rows, cols) {
+  const esc = (v) => v == null ? "" : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+  return [cols.join(",")].concat(rows.map(r => cols.map(c => esc(r[c])).join(","))).join("\n");
+}
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type: "text/csv"}));
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+// ---- tabs ----
+$("#tab-plans").addEventListener("click", () => setTab("plans"));
+$("#tab-needs").addEventListener("click", () => setTab("needs"));
+function setTab(t) {
+  $("#tab-plans").classList.toggle("active", t === "plans");
+  $("#tab-needs").classList.toggle("active", t === "needs");
+  $("#pane-plans").hidden = t !== "plans";
+  $("#pane-needs").hidden = t !== "needs";
+}
+
+// ---- plans ----
+let PLANS = [];
+let planSort = {k: "year", dir: -1};
+fetch("data/plans.json?" + Date.now()).then(r => r.json()).then(d => {
+  PLANS = d.plans.map(p => ({...p, pct_funded: p.funding_total != null && p.revised_requirements ? Math.round(100 * p.funding_total / p.revised_requirements) : null}));
+  $("#generated").textContent = "data as of " + (d.generated_at || "").slice(0, 10);
+  const years = [...new Set(PLANS.map(p => p.year))].sort((a, b) => b - a);
+  $("#plan-year").innerHTML = '<option value="">All years</option>' + years.map(y => `<option>${y}</option>`).join("");
+  renderPlans();
+});
+["plan-year", "plan-search"].forEach(id => $("#" + id).addEventListener("input", renderPlans));
+document.querySelectorAll("#plan-table th").forEach(th => th.addEventListener("click", () => {
+  const k = th.dataset.k;
+  planSort = {k, dir: planSort.k === k ? -planSort.dir : -1};
+  renderPlans();
+}));
+function filteredPlans() {
+  const y = $("#plan-year").value, q = $("#plan-search").value.toLowerCase();
+  return PLANS.filter(p => (!y || p.year == y) && (!q || (p.name || "").toLowerCase().includes(q) || (p.iso3 || "").toLowerCase().includes(q)))
+    .sort((a, b) => {
+      const va = a[planSort.k], vb = b[planSort.k];
+      if (va == null) return 1; if (vb == null) return -1;
+      return (va > vb ? 1 : va < vb ? -1 : 0) * planSort.dir;
+    });
+}
+function renderPlans() {
+  const rows = filteredPlans();
+  $("#plan-count").textContent = rows.length + " plans";
+  const tb = $("#plan-table tbody");
+  tb.innerHTML = rows.map((p, i) => `
+    <tr class="planrow" data-i="${i}">
+      <td class="num">${p.year ?? ""}</td><td>${p.iso3 ?? ""}</td>
+      <td>${p.name ?? ""}</td><td>${p.plan_type ?? ""}</td>
+      <td class="num" title="${fmtFull(p.in_need)}">${fmt(p.in_need)}</td>
+      <td class="num" title="${fmtFull(p.targeted)}">${fmt(p.targeted)}</td>
+      <td class="num" title="${fmtFull(p.revised_requirements)}">${fmt(p.revised_requirements)}</td>
+      <td class="num" title="${fmtFull(p.funding_total)}">${fmt(p.funding_total)}</td>
+      <td class="num">${p.pct_funded != null ? p.pct_funded + "%" : ""}</td>
+    </tr>`).join("");
+  tb.querySelectorAll("tr.planrow").forEach(tr => tr.addEventListener("click", () => toggleDetail(tr, rows[+tr.dataset.i])));
+}
+function toggleDetail(tr, p) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains("detail")) { next.remove(); return; }
+  document.querySelectorAll("tr.detail").forEach(d => d.remove());
+  const det = document.createElement("tr");
+  det.className = "detail";
+  const cls = p.caseloads || [];
+  det.innerHTML = `<td colspan="9">${cls.length ? `
+    <table class="clustertable">
+      <thead><tr><th>Cluster</th><th class="num">In need</th><th class="num">Targeted</th><th class="num">Reached</th><th class="num">Requirements ($)</th></tr></thead>
+      <tbody>${cls.map(c => `<tr><td>${c.cluster_name ?? ""}</td>
+        <td class="num">${fmtFull(c.in_need)}</td><td class="num">${fmtFull(c.targeted)}</td>
+        <td class="num">${fmtFull(c.reached)}</td><td class="num">${fmtFull(c.requirements)}</td></tr>`).join("")}
+      </tbody></table>` : "No cluster-level caseloads published for this plan."}</td>`;
+  tr.after(det);
+}
+$("#plan-dl").addEventListener("click", () => {
+  const cols = ["year", "iso3", "code", "name", "plan_type", "total_population", "in_need", "targeted", "reached", "orig_requirements", "revised_requirements", "funding_total", "pct_funded"];
+  download("hnrp_plans.csv", toCSV(filteredPlans(), cols));
+});
+
+// ---- admin needs ----
+let NEEDS_INDEX = [], NEEDS = null;
+fetch("data/needs_index.json?" + Date.now()).then(r => r.ok ? r.json() : {countries: []}).then(d => {
+  NEEDS_INDEX = d.countries || [];
+  $("#needs-country").innerHTML = NEEDS_INDEX.map(c => `<option value="${c.iso3}">${c.name} (${c.iso3})</option>`).join("");
+  if (NEEDS_INDEX.length) fillYears();
+});
+function fillYears() {
+  const c = NEEDS_INDEX.find(c => c.iso3 === $("#needs-country").value) || NEEDS_INDEX[0];
+  $("#needs-year").innerHTML = [...c.years].sort((a, b) => b - a).map(y => `<option>${y}</option>`).join("");
+  loadNeeds();
+}
+$("#needs-country").addEventListener("input", fillYears);
+$("#needs-year").addEventListener("input", loadNeeds);
+["needs-level", "needs-sector", "needs-status", "needs-search"].forEach(id => $("#" + id).addEventListener("input", renderNeeds));
+function loadNeeds() {
+  const iso = $("#needs-country").value, y = $("#needs-year").value;
+  if (!iso || !y) return;
+  fetch(`data/needs/${iso}_${y}.json?` + Date.now()).then(r => r.json()).then(d => {
+    NEEDS = d.rows.map(r => Object.fromEntries(d.columns.map((c, i) => [c, r[i]])));
+    const sectors = [...new Set(NEEDS.map(r => r.sector_name).filter(Boolean))].sort();
+    $("#needs-sector").innerHTML = '<option value="">All sectors</option>' + sectors.map(s => `<option>${s}</option>`).join("");
+    const statuses = [...new Set(NEEDS.map(r => r.population_status).filter(Boolean))].sort();
+    $("#needs-status").innerHTML = '<option value="">All statuses</option>' + statuses.map(s => `<option ${s === "INN" ? "selected" : ""}>${s}</option>`).join("");
+    renderNeeds();
+  });
+}
+function filteredNeeds() {
+  const lvl = $("#needs-level").value, sec = $("#needs-sector").value,
+        st = $("#needs-status").value, q = $("#needs-search").value.toLowerCase();
+  return (NEEDS || []).filter(r =>
+    (lvl === "" || String(r.admin_level) === lvl) &&
+    (!sec || r.sector_name === sec) &&
+    (!st || r.population_status === st) &&
+    (!q || (r.admin1_name || "").toLowerCase().includes(q) || (r.admin2_name || "").toLowerCase().includes(q)));
+}
+function renderNeeds() {
+  const rows = filteredNeeds();
+  $("#needs-count").textContent = fmtFull(rows.length) + " rows";
+  $("#needs-table tbody").innerHTML = rows.slice(0, 2000).map(r => `
+    <tr><td>${r.admin_level}</td><td>${r.admin1_name ?? ""}</td><td>${r.admin2_name ?? ""}</td>
+    <td>${r.sector_name ?? ""}</td><td>${r.category ?? ""}</td><td>${r.population_status ?? ""}</td>
+    <td class="num">${fmtFull(r.population)}</td></tr>`).join("") +
+    (rows.length > 2000 ? `<tr><td colspan="7" class="count">…showing first 2,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
+}
+$("#needs-dl").addEventListener("click", () => {
+  const cols = ["admin_level", "admin1_code", "admin1_name", "admin2_code", "admin2_name", "sector_code", "sector_name", "category", "population_status", "population"];
+  download(`pin_${$("#needs-country").value}_${$("#needs-year").value}.csv`, toCSV(filteredNeeds(), cols));
+});
+</script>
+</body>
+</html>

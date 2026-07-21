@@ -1,0 +1,22 @@
+[project]
+name = "ds-hnrp-mirror"
+version = "0.1.0"
+description = "Mirror of HNRP/HRP plan data and People in Need (PiN) figures from the HPC API and HDX HAPI"
+requires-python = ">=3.11"
+dependencies = [
+    "requests",
+    "pandas",
+    "pyarrow",
+    "python-dotenv",
+    "ocha-stratus>=0.1.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 88

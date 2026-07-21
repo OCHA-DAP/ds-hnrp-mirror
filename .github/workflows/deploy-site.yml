@@ -1,0 +1,46 @@
+name: Deploy explorer site
+
+on:
+  workflow_run:
+    workflows: ["Refresh HNRP mirror"]
+    types: [completed]
+  schedule:
+    - cron: "0 8 * * *" # daily backstop in case the chain didn't fire
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install --no-sources -e .
+      - name: Export site data
+        env:
+          DSCI_AZ_DB_DEV_HOST: ${{ secrets.DSCI_AZ_DB_DEV_HOST }}
+          DSCI_AZ_DB_DEV_UID: ${{ secrets.DSCI_AZ_DB_DEV_UID }}
+          DSCI_AZ_DB_DEV_PW: ${{ secrets.DSCI_AZ_DB_DEV_PW }}
+          PGSSLMODE: require
+        run: uv run --no-sync python scripts/export_site_data.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
