@@ -43,6 +43,7 @@
   <div class="tabs">
     <button id="tab-plans" class="active">Plans</button>
     <button id="tab-needs">Admin-level PiN</button>
+    <button id="tab-sev">Severity</button>
   </div>
 
   <section id="pane-plans">
@@ -88,13 +89,39 @@
     <div class="tablewrap">
       <table id="needs-table">
         <thead><tr>
-          <th>Lvl</th><th>Admin 1</th><th>Admin 2</th><th>Sector</th>
+          <th>Lvl</th><th>Admin 1</th><th>Admin 2</th><th>Admin 3</th><th>Sector</th>
           <th>Category</th><th>Status</th><th class="num">People</th>
         </tr></thead>
         <tbody></tbody>
       </table>
     </div>
-    <p class="note">Source: HDX HAPI <code>affected-people/humanitarian-needs</code> (OCHA Global HNO). Status codes: INN&nbsp;=&nbsp;in need, TGT&nbsp;=&nbsp;targeted, AFF&nbsp;=&nbsp;affected, REA&nbsp;=&nbsp;reached. Rows are shown as published — categories overlap, so do not sum across category rows.</p>
+    <p class="note">Source: HDX HAPI <code>affected-people/humanitarian-needs</code> (OCHA Global HNO), plus admin-3 rows from the Global HPC HNO CSVs where published (BFA, COD, MMR). Status codes: INN&nbsp;=&nbsp;in need, TGT&nbsp;=&nbsp;targeted, AFF&nbsp;=&nbsp;affected, REA&nbsp;=&nbsp;reached. Rows are shown as published — categories overlap, so do not sum across category rows.</p>
+  </section>
+
+  <section id="pane-sev" hidden>
+    <div class="controls">
+      <select id="sev-country"></select>
+      <select id="sev-year"></select>
+      <select id="sev-min">
+        <option value="">All severities</option>
+        <option value="3">Severity 3+</option>
+        <option value="4" selected>Severity 4+</option>
+        <option value="5">Severity 5</option>
+      </select>
+      <input type="search" id="sev-search" placeholder="Search admin name…">
+      <span class="count" id="sev-count"></span>
+      <button class="dl" id="sev-dl">Download CSV</button>
+    </div>
+    <div class="tablewrap">
+      <table id="sev-table">
+        <thead><tr>
+          <th>Admin 1</th><th>Admin 2</th><th>Admin 3</th><th>Pop. group</th>
+          <th class="num">Population</th><th class="num">Final severity</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Source: per-country JIAF workbooks on HDX (<code>*-jiaf-humanitarian-needs-pin-and-severity</code>) — intersectoral <b>final severity (1–5)</b> per admin area (admin-3 where published: BFA, COD, SYR). 2025+ only; UKR and a few nonstandard workbooks publish no severity sheet. Population is the area total, not people-in-phase.</p>
   </section>
 </main>
 <script>
@@ -113,13 +140,12 @@ function download(name, text) {
 }
 
 // ---- tabs ----
-$("#tab-plans").addEventListener("click", () => setTab("plans"));
-$("#tab-needs").addEventListener("click", () => setTab("needs"));
+["plans", "needs", "sev"].forEach(t => $("#tab-" + t).addEventListener("click", () => setTab(t)));
 function setTab(t) {
-  $("#tab-plans").classList.toggle("active", t === "plans");
-  $("#tab-needs").classList.toggle("active", t === "needs");
-  $("#pane-plans").hidden = t !== "plans";
-  $("#pane-needs").hidden = t !== "needs";
+  ["plans", "needs", "sev"].forEach(x => {
+    $("#tab-" + x).classList.toggle("active", x === t);
+    $("#pane-" + x).hidden = x !== t;
+  });
 }
 
 // ---- plans ----
@@ -225,13 +251,58 @@ function renderNeeds() {
   $("#needs-count").textContent = fmtFull(rows.length) + " rows";
   $("#needs-table tbody").innerHTML = rows.slice(0, 2000).map(r => `
     <tr><td>${r.admin_level}</td><td>${r.admin1_name ?? ""}</td><td>${r.admin2_name ?? ""}</td>
+    <td>${r.admin3_name ?? ""}</td>
     <td>${r.sector_name ?? ""}</td><td>${r.category ?? ""}</td><td>${r.population_status ?? ""}</td>
     <td class="num">${fmtFull(r.population)}</td></tr>`).join("") +
-    (rows.length > 2000 ? `<tr><td colspan="7" class="count">…showing first 2,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
+    (rows.length > 2000 ? `<tr><td colspan="8" class="count">…showing first 2,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
 }
 $("#needs-dl").addEventListener("click", () => {
-  const cols = ["admin_level", "admin1_code", "admin1_name", "admin2_code", "admin2_name", "sector_code", "sector_name", "category", "population_status", "population"];
+  const cols = ["admin_level", "admin1_code", "admin1_name", "admin2_code", "admin2_name", "admin3_code", "admin3_name", "sector_code", "sector_name", "category", "population_status", "population"];
   download(`pin_${$("#needs-country").value}_${$("#needs-year").value}.csv`, toCSV(filteredNeeds(), cols));
+});
+
+// ---- severity ----
+let SEV_INDEX = [], SEV = null;
+fetch("data/severity_index.json?" + Date.now()).then(r => r.ok ? r.json() : {countries: []}).then(d => {
+  SEV_INDEX = d.countries || [];
+  $("#sev-country").innerHTML = SEV_INDEX.map(c => `<option value="${c.iso3}">${c.iso3}</option>`).join("");
+  if (SEV_INDEX.length) fillSevYears();
+});
+function fillSevYears() {
+  const c = SEV_INDEX.find(c => c.iso3 === $("#sev-country").value) || SEV_INDEX[0];
+  $("#sev-year").innerHTML = [...c.years].sort((a, b) => b - a).map(y => `<option>${y}</option>`).join("");
+  loadSev();
+}
+$("#sev-country").addEventListener("input", fillSevYears);
+$("#sev-year").addEventListener("input", loadSev);
+["sev-min", "sev-search"].forEach(id => $("#" + id).addEventListener("input", renderSev));
+function loadSev() {
+  const iso = $("#sev-country").value, y = $("#sev-year").value;
+  if (!iso || !y) return;
+  fetch(`data/severity/${iso}_${y}.json?` + Date.now()).then(r => r.json()).then(d => {
+    SEV = d.rows.map(r => Object.fromEntries(d.columns.map((c, i) => [c, r[i]])));
+    renderSev();
+  });
+}
+function filteredSev() {
+  const min = $("#sev-min").value, q = $("#sev-search").value.toLowerCase();
+  return (SEV || []).filter(r =>
+    (!min || r.final_severity >= +min) &&
+    (!q || [r.admin1_name, r.admin2_name, r.admin3_name].some(n => (n || "").toLowerCase().includes(q))))
+    .sort((a, b) => b.final_severity - a.final_severity);
+}
+const SEV_BG = {1: "#eaf3fb", 2: "#d8e9f7", 3: "#ffe6c9", 4: "#ffc9b0", 5: "#f3b1ad"};
+function renderSev() {
+  const rows = filteredSev();
+  $("#sev-count").textContent = fmtFull(rows.length) + " areas";
+  $("#sev-table tbody").innerHTML = rows.slice(0, 3000).map(r => `
+    <tr><td>${r.admin1_name ?? ""}</td><td>${r.admin2_name ?? ""}</td><td>${r.admin3_name ?? ""}</td>
+    <td>${r.population_group ?? ""}</td><td class="num">${fmtFull(r.population)}</td>
+    <td class="num" style="background:${SEV_BG[r.final_severity] || ""}"><b>${r.final_severity}</b></td></tr>`).join("");
+}
+$("#sev-dl").addEventListener("click", () => {
+  const cols = ["admin1_code", "admin1_name", "admin2_code", "admin2_name", "admin3_code", "admin3_name", "population_group", "population", "final_severity"];
+  download(`severity_${$("#sev-country").value}_${$("#sev-year").value}.csv`, toCSV(filteredSev(), cols));
 });
 </script>
 </body>

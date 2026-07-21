@@ -7,8 +7,10 @@ appeals, RRPs, CAPs, other). GH Pages explorer deployed from Actions.
 ## Key facts
 
 - Tables: `hpc.plans` (PK `plan_id` — the only stable join key; codes/names shift),
-  `hpc.plan_caseloads` (PK `(plan_id, entity_id)`), `hpc.needs_admin` (HAPI mirror,
-  full replace with a min-row-count guard).
+  `hpc.plan_caseloads` (PK `(plan_id, entity_id)`), `hpc.needs_admin` (HAPI + Global HNO adm3 rows,
+  full replace with a min-row-count guard), `hpc.severity_admin` (JIAF final
+  severity 1–5; anchor-based parser over localized country workbooks — see
+  src/jiaf.py; UKR/SYR-2026/YEM-2025 publish no severity sheet).
 - Sources: HPC API + FTS (all years, plan/cluster level) and HDX HAPI
   `affected-people/humanitarian-needs` (admin 0–2, Global-HNO countries only, 2024+).
   Flash appeals/RRPs have **no** public admin-level PiN — plan/cluster is their max.

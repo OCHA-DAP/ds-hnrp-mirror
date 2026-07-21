@@ -9,6 +9,7 @@ dependencies = [
     "pyarrow",
     "python-dotenv",
     "ocha-stratus>=0.1.7",
+    "openpyxl",
 ]
 
 [build-system]

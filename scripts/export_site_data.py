@@ -28,7 +28,13 @@ SITE_DATA = Path(__file__).parent.parent / "site" / "data"
 
 NEEDS_ROW_COLS = [
     "admin_level", "admin1_code", "admin1_name", "admin2_code", "admin2_name",
+    "admin3_code", "admin3_name",
     "sector_code", "sector_name", "category", "population_status", "population",
+]
+SEVERITY_ROW_COLS = [
+    "admin1_code", "admin1_name", "admin2_code", "admin2_name",
+    "admin3_code", "admin3_name", "population_group", "population",
+    "final_severity",
 ]
 
 
@@ -88,11 +94,40 @@ def export_needs(generated_at):
     logger.info("needs export: %s countries, %s rows", len(index), len(needs))
 
 
+def export_severity(generated_at):
+    sev = storage.read_severity()
+    if sev.empty:
+        logger.warning("severity_admin is empty; skipping severity export")
+        return
+    (SITE_DATA / "severity").mkdir(parents=True, exist_ok=True)
+    index = []
+    for iso3, g_iso in sorted(sev.groupby("iso3")):
+        index.append({"iso3": iso3, "years": sorted(int(y) for y in g_iso["year"].unique())})
+        for year, g in g_iso.groupby("year"):
+            rows = [
+                [_clean(v) for v in row]
+                for row in g[SEVERITY_ROW_COLS].itertuples(index=False, name=None)
+            ]
+            payload = {
+                "generated_at": generated_at,
+                "iso3": iso3,
+                "year": int(year),
+                "columns": SEVERITY_ROW_COLS,
+                "rows": rows,
+            }
+            (SITE_DATA / "severity" / f"{iso3}_{year}.json").write_text(json.dumps(payload))
+    (SITE_DATA / "severity_index.json").write_text(
+        json.dumps({"generated_at": generated_at, "countries": index})
+    )
+    logger.info("severity export: %s countries, %s rows", len(index), len(sev))
+
+
 def main():
     SITE_DATA.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     export_plans(generated_at)
     export_needs(generated_at)
+    export_severity(generated_at)
 
 
 if __name__ == "__main__":

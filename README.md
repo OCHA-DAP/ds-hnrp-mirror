@@ -11,6 +11,8 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 | [HPC API](https://api.hpc.tools) (`/v2/public/plan`, `/v1/public/plan/id/{id}?content=measurements`) | Plan metadata, plan- and cluster-level caseloads (total population, in need, targeted, reached), requirements | plan / cluster | all plan years (2004+; caseloads ~2017+) |
 | [FTS](https://api.hpc.tools/v1/public/fts/flow) | Reported funding per plan | plan | all years |
 | [HDX HAPI](https://hapi.humdata.org) `affected-people/humanitarian-needs` | PiN by admin area, sector, category, population status (Global HNO) | up to **admin-2** | 2024+ (~24 HNRP countries) |
+| [Global HPC HNO CSVs](https://data.humdata.org/dataset/global-hpc-hno) | Admin-3 PiN rows HAPI truncates | **admin-3** (BFA, COD, MMR) | 2024–2025 |
+| [Per-country JIAF workbooks](https://data.humdata.org/search?q=jiaf%20humanitarian%20needs) (`*-jiaf-humanitarian-needs-*`) | Intersectoral **final severity (1–5)** per admin area | admin-2 (admin-3: BFA, COD, SYR) | 2025+ (~20 countries) |
 
 ### Coverage notes
 
@@ -36,11 +38,12 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 
 - `hpc.plans` — one row per plan: metadata, requirements, FTS funding, plan-level caseload totals. PK `plan_id`.
 - `hpc.plan_caseloads` — cluster-level caseloads + requirements. PK `(plan_id, entity_id)`.
-- `hpc.needs_admin` — HAPI humanitarian-needs mirror (admin 0–2 × sector × category × status). Full replace on refresh.
+- `hpc.needs_admin` — HAPI humanitarian-needs mirror + Global HNO admin-3 rows (admin 0–3 × sector × category × status). Full replace on refresh.
+- `hpc.severity_admin` — JIAF intersectoral final severity (1–5) per admin area × population group, parsed from per-country workbooks (localized EN/FR/ES templates; anchor-based parser, unparseable files logged). Full replace on refresh.
 
 ## Pipelines (GitHub Actions)
 
-- **Refresh HNRP mirror** (`refresh-hnrp.yml`) — daily 04:17 UTC refreshes current/previous/next plan years (HPC + FTS), then the full HAPI mirror; Sunday 02:47 UTC runs the full historical backfill. Manual dispatch with `all_years` for an on-demand backfill.
+- **Refresh HNRP mirror** (`refresh-hnrp.yml`) — daily 04:17 UTC refreshes current/previous/next plan years (HPC + FTS), then the admin-level PiN (HAPI + Global HNO adm3) and JIAF severity mirrors; Sunday 02:47 UTC runs the full historical backfill. Manual dispatch with `all_years` for an on-demand backfill.
 - **Deploy explorer site** (`deploy-site.yml`) — chains off a successful refresh (plus a daily backstop), exports `site/data/*.json` from the DB and deploys `site/` to GitHub Pages. Nothing is committed; data is regenerated each deploy.
 
 ## Local use
@@ -49,7 +52,8 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 uv sync
 cp .env.example .env  # fill in creds
 uv run python scripts/refresh_hpc.py --years 2025,2026
-uv run python scripts/refresh_hapi.py
+uv run python scripts/refresh_needs.py
+uv run python scripts/refresh_jiaf.py
 uv run python scripts/export_site_data.py && open site/index.html
 ```
 

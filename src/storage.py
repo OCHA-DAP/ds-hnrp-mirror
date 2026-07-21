@@ -33,9 +33,15 @@ CASELOAD_COLS = [
 ]
 NEEDS_COLS = [
     "location_code", "location_name", "admin1_code", "admin1_name",
-    "admin2_code", "admin2_name", "admin_level", "sector_code", "sector_name",
+    "admin2_code", "admin2_name", "admin3_code", "admin3_name",
+    "admin_level", "sector_code", "sector_name",
     "category", "population_status", "population",
     "reference_period_start", "reference_period_end", "resource_hdx_id",
+]
+SEVERITY_COLS = [
+    "iso3", "year", "admin1_code", "admin1_name", "admin2_code", "admin2_name",
+    "admin3_code", "admin3_name",
+    "population_group", "population", "final_severity",
 ]
 
 
@@ -104,6 +110,26 @@ def ensure_tables():
     );
     CREATE INDEX IF NOT EXISTS needs_admin_loc_idx
         ON {SCHEMA}.needs_admin (location_code, admin_level);
+    ALTER TABLE {SCHEMA}.needs_admin ADD COLUMN IF NOT EXISTS admin3_code text;
+    ALTER TABLE {SCHEMA}.needs_admin ADD COLUMN IF NOT EXISTS admin3_name text;
+    CREATE TABLE IF NOT EXISTS {SCHEMA}.severity_admin (
+        iso3 text,
+        year integer,
+        admin1_code text,
+        admin1_name text,
+        admin2_code text,
+        admin2_name text,
+        admin3_code text,
+        admin3_name text,
+        population_group text,
+        population bigint,
+        final_severity integer,
+        refreshed_at timestamptz
+    );
+    ALTER TABLE {SCHEMA}.severity_admin ADD COLUMN IF NOT EXISTS admin3_code text;
+    ALTER TABLE {SCHEMA}.severity_admin ADD COLUMN IF NOT EXISTS admin3_name text;
+    CREATE INDEX IF NOT EXISTS severity_admin_loc_idx
+        ON {SCHEMA}.severity_admin (iso3, year, final_severity);
     """
     with get_engine(write=True).begin() as conn:
         conn.execute(text(ddl))
@@ -163,6 +189,28 @@ def replace_needs(df):
             method="multi",
         )
     logger.info("Replaced needs_admin with %s rows", len(df))
+
+
+def replace_severity(df):
+    """Full transactional replace of the JIAF severity mirror."""
+    df = df[SEVERITY_COLS].copy()
+    df["refreshed_at"] = datetime.now(timezone.utc)
+    with get_engine(write=True).begin() as conn:
+        conn.execute(text(f"DELETE FROM {SCHEMA}.severity_admin"))
+        df.to_sql(
+            "severity_admin",
+            conn,
+            schema=SCHEMA,
+            if_exists="append",
+            index=False,
+            chunksize=10_000,
+            method="multi",
+        )
+    logger.info("Replaced severity_admin with %s rows", len(df))
+
+
+def read_severity():
+    return pd.read_sql(f"SELECT * FROM {SCHEMA}.severity_admin", get_engine())
 
 
 def read_plans():
