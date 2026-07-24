@@ -24,4 +24,11 @@ appeals, RRPs, CAPs, other). GH Pages explorer deployed from Actions.
   regenerates `site/data/*.json` from the DB (git-ignored, never committed).
 - Historical pre-2024 admin-level PiN exists only as heterogeneous per-country xlsx
   on HDX (`ocha-hpc-tools` org) or ~8 MB HPC disaggregation matrices — phase-2, not v1.
+- Pcode audit (2026-07, vs `public.polygon` prod): HAPI needs pcodes ~100% clean except
+  `*-XXX` placeholders (intentional), Chad `TCD`→`TD` prefix, SOM Banadir adm2 gap in the
+  reference. Severity workbook quirks: NER `NER`→`NE`, COL zero-padding, MLI/BFA codes
+  newer than COD-AB (real 2023–25 admin reforms). adm3 parents are derived by longest
+  pcode-prefix vs public.polygon (prod read) in refresh_needs.py — upstream CSV leaves
+  them blank, and BFA/COD/ETH/SYR have NO HAPI subnational rows (adm3-only countries),
+  so polygon is the only parent universe for them.
 - KB pages: `pipelines/hnrp-mirror.md`, `infrastructure/datasets/hnrp.md`.

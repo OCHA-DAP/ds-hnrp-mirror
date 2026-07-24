@@ -11,7 +11,7 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 | [HPC API](https://api.hpc.tools) (`/v2/public/plan`, `/v1/public/plan/id/{id}?content=measurements`) | Plan metadata, plan- and cluster-level caseloads (total population, in need, targeted, reached), requirements | plan / cluster | all plan years (2004+; caseloads ~2017+) |
 | [FTS](https://api.hpc.tools/v1/public/fts/flow) | Reported funding per plan | plan | all years |
 | [HDX HAPI](https://hapi.humdata.org) `affected-people/humanitarian-needs` | PiN by admin area, sector, category, population status (Global HNO) | up to **admin-2** | 2024+ (~24 HNRP countries) |
-| [Global HPC HNO CSVs](https://data.humdata.org/dataset/global-hpc-hno) | Admin-3 PiN rows HAPI truncates | **admin-3** (BFA, COD, MMR) | 2024–2025 |
+| [Global HPC HNO CSVs](https://data.humdata.org/dataset/global-hpc-hno) | Admin-3 PiN rows HAPI truncates | **admin-3** (BFA, COD, ETH, MMR, SYR) | 2024–2025 |
 | [Per-country JIAF workbooks](https://data.humdata.org/search?q=jiaf%20humanitarian%20needs) (`*-jiaf-humanitarian-needs-*`) | Intersectoral **final severity (1–5)** per admin area | admin-2 (admin-3: BFA, COD, SYR) | 2025+ (~20 countries) |
 
 ### Coverage notes
@@ -63,3 +63,21 @@ uv run python scripts/export_site_data.py && open site/index.html
 - FTS funding is as-reported (self-reported, lags); a low % funded is not a data error.
 - HAPI category rows **overlap** (e.g. Adult / Total / by-gender) — filter, don't sum across categories.
 - License: open, attribution to UN OCHA (HPC/FTS) and OCHA via HDX.
+
+## Pcode quality (audited 2026-07 vs `public.polygon`, the team's COD-AB reference)
+
+- **`needs_admin` (HAPI) is p-code-aligned by design** — near-100% match. Residual
+  mismatches are (a) HAPI's own `*-XXX` placeholder codes for population not attributable
+  to an admin unit (keep or filter, they're intentional), (b) Chad, where HAPI uses
+  `TCD##`-prefixed pcodes vs `TD##` in COD-AB (map prefix `TCD`→`TD` to join), and
+  (c) Somalia's Banadir districts (`SO22##`), absent from the reference's adm2 layer.
+- **adm3 rows** ship without parent pcodes upstream; the refresh derives admin-1/2
+  parents by longest-pcode-prefix match against `public.polygon` (+ HAPI codes).
+  Note: for the adm3-only countries (**BFA, COD, ETH, SYR**) HAPI carries *no*
+  subnational rows at all — their Global HNO publishes only admin-3 — so the CSV
+  supplement is the sole source of subnational PiN for them in this mirror.
+- **`severity_admin` (hand-built workbooks) is messier**: Niger uses `NER###` vs
+  COD-AB `NE###`; Chad `TCD##` as above; Colombia drops DIVIPOLA zero-padding
+  (`CO5001` vs `CO05001`). Mali (`ML11+`) and Burkina (`BF58+`) reflect **real
+  post-reform admin units newer than the COD-AB reference** — those are not errors.
+  Join on names or normalize prefixes/padding when matching to boundaries.
