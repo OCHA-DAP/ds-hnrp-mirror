@@ -12,7 +12,7 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 | [FTS](https://api.hpc.tools/v1/public/fts/flow) | Reported funding per plan | plan | all years |
 | [HDX HAPI](https://hapi.humdata.org) `affected-people/humanitarian-needs` | PiN by admin area, sector, category, population status (Global HNO) | up to **admin-2** | 2024+ (~24 HNRP countries) |
 | [Global HPC HNO CSVs](https://data.humdata.org/dataset/global-hpc-hno) | Admin-3 PiN rows HAPI truncates | **admin-3** (BFA, COD, ETH, MMR, SYR) | 2024–2025 |
-| [Per-country JIAF workbooks](https://data.humdata.org/search?q=jiaf%20humanitarian%20needs) (`*-jiaf-humanitarian-needs-*`) | Intersectoral **final severity (1–5)** per admin area | admin-2 (admin-3: BFA, COD, SYR) | 2025+ (~20 countries) |
+| [Per-country JIAF workbooks](https://data.humdata.org/search?q=jiaf%20humanitarian%20needs) (`*-jiaf-humanitarian-needs-*`) | Intersectoral **final severity (1–5)** and **overall PiN (preliminary/final)** per admin area × population group | admin-2 (admin-3: BFA, COD, SYR) | 2025+ (~20 countries) |
 
 ### Coverage notes
 
@@ -40,6 +40,7 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 - `hpc.plan_caseloads` — cluster-level caseloads + requirements. PK `(plan_id, entity_id)`.
 - `hpc.needs_admin` — HAPI humanitarian-needs mirror + Global HNO admin-3 rows (admin 0–3 × sector × category × status). Full replace on refresh.
 - `hpc.severity_admin` — JIAF intersectoral final severity (1–5) per admin area × population group, parsed from per-country workbooks (localized EN/FR/ES templates; anchor-based parser, unparseable files logged). Full replace on refresh.
+- `hpc.pin_admin` — JIAF intersectoral overall PiN (preliminary + final) per admin area × population group, from the same workbooks ("WS - 3.1 Overall PiN" / "PiN" sheet). 2026-cycle rows carry their own `severity` — final PiN grouped by it is the **PiN-by-severity distribution** the 2025 Humanitarian Reset reintroduced (overall PiN counts only phase-3+ areas from HPC 2026 on). 2025 rows have `severity` NULL — join `severity_admin` on (iso3, year, admin codes, population_group). Full replace on refresh.
 
 ## Pipelines (GitHub Actions)
 
@@ -62,6 +63,16 @@ uv run python scripts/export_site_data.py && open site/index.html
 - Key on `plan_id` (HPC) — plan **codes/names change** between versions and years; "HNRP" vs "HNO + HRP" is a naming shift around 2024.
 - FTS funding is as-reported (self-reported, lags); a low % funded is not a data error.
 - HAPI category rows **overlap** (e.g. Adult / Total / by-gender) — filter, don't sum across categories.
+- `pin_admin` national sums can differ from the official plan PiN in `hpc.plans`
+  (workbook vs. HPC-reconciled figures; some workbooks track refugees in a separate
+  column). A few workbooks fill only one of preliminary/final (NGA 2025 publishes
+  no final PiN). Where a dataset re-uploads a revised workbook (COD 2026), the
+  **newest resource wins** for both severity and PiN.
+- `pin_admin.severity` is the PiN sheet's own column, mirrored as-is — a few
+  country offices fill it carelessly (SSD 2026 has a constant 4 on every row while
+  its severity sheet has a real 3/4/5 spread). For analysis, sanity-check against
+  `severity_admin` (the WS-3.2 final severity) before trusting a degenerate
+  distribution.
 - License: open, attribution to UN OCHA (HPC/FTS) and OCHA via HDX.
 
 ## Pcode quality (audited 2026-07 vs `public.polygon`, the team's COD-AB reference)
@@ -76,7 +87,7 @@ uv run python scripts/export_site_data.py && open site/index.html
   Note: for the adm3-only countries (**BFA, COD, ETH, SYR**) HAPI carries *no*
   subnational rows at all — their Global HNO publishes only admin-3 — so the CSV
   supplement is the sole source of subnational PiN for them in this mirror.
-- **`severity_admin` (hand-built workbooks) is messier**: Niger uses `NER###` vs
+- **`severity_admin` / `pin_admin` (hand-built workbooks) are messier**: Niger uses `NER###` vs
   COD-AB `NE###`; Chad `TCD##` as above; Colombia drops DIVIPOLA zero-padding
   (`CO5001` vs `CO05001`). Mali (`ML11+`) and Burkina (`BF58+`) reflect **real
   post-reform admin units newer than the COD-AB reference** — those are not errors.

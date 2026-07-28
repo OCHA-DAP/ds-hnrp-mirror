@@ -36,6 +36,11 @@ SEVERITY_ROW_COLS = [
     "admin3_code", "admin3_name", "population_group", "population",
     "final_severity",
 ]
+PIN_ROW_COLS = [
+    "admin1_code", "admin1_name", "admin2_code", "admin2_name",
+    "admin3_code", "admin3_name", "population_group", "population",
+    "severity", "preliminary_pin", "final_pin",
+]
 
 
 def _clean(v):
@@ -122,12 +127,41 @@ def export_severity(generated_at):
     logger.info("severity export: %s countries, %s rows", len(index), len(sev))
 
 
+def export_pin(generated_at):
+    pin = storage.read_pin()
+    if pin.empty:
+        logger.warning("pin_admin is empty; skipping pin export")
+        return
+    (SITE_DATA / "pin").mkdir(parents=True, exist_ok=True)
+    index = []
+    for iso3, g_iso in sorted(pin.groupby("iso3")):
+        index.append({"iso3": iso3, "years": sorted(int(y) for y in g_iso["year"].unique())})
+        for year, g in g_iso.groupby("year"):
+            rows = [
+                [_clean(v) for v in row]
+                for row in g[PIN_ROW_COLS].itertuples(index=False, name=None)
+            ]
+            payload = {
+                "generated_at": generated_at,
+                "iso3": iso3,
+                "year": int(year),
+                "columns": PIN_ROW_COLS,
+                "rows": rows,
+            }
+            (SITE_DATA / "pin" / f"{iso3}_{year}.json").write_text(json.dumps(payload))
+    (SITE_DATA / "pin_index.json").write_text(
+        json.dumps({"generated_at": generated_at, "countries": index})
+    )
+    logger.info("pin export: %s countries, %s rows", len(index), len(pin))
+
+
 def main():
     SITE_DATA.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     export_plans(generated_at)
     export_needs(generated_at)
     export_severity(generated_at)
+    export_pin(generated_at)
 
 
 if __name__ == "__main__":

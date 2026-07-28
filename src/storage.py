@@ -43,6 +43,11 @@ SEVERITY_COLS = [
     "admin3_code", "admin3_name",
     "population_group", "population", "final_severity",
 ]
+PIN_COLS = [
+    "iso3", "year", "admin1_code", "admin1_name", "admin2_code", "admin2_name",
+    "admin3_code", "admin3_name",
+    "population_group", "population", "severity", "preliminary_pin", "final_pin",
+]
 
 
 def get_engine(write=False):
@@ -130,6 +135,24 @@ def ensure_tables():
     ALTER TABLE {SCHEMA}.severity_admin ADD COLUMN IF NOT EXISTS admin3_name text;
     CREATE INDEX IF NOT EXISTS severity_admin_loc_idx
         ON {SCHEMA}.severity_admin (iso3, year, final_severity);
+    CREATE TABLE IF NOT EXISTS {SCHEMA}.pin_admin (
+        iso3 text,
+        year integer,
+        admin1_code text,
+        admin1_name text,
+        admin2_code text,
+        admin2_name text,
+        admin3_code text,
+        admin3_name text,
+        population_group text,
+        population bigint,
+        severity integer,
+        preliminary_pin bigint,
+        final_pin bigint,
+        refreshed_at timestamptz
+    );
+    CREATE INDEX IF NOT EXISTS pin_admin_loc_idx
+        ON {SCHEMA}.pin_admin (iso3, year, severity);
     """
     with get_engine(write=True).begin() as conn:
         conn.execute(text(ddl))
@@ -209,8 +232,30 @@ def replace_severity(df):
     logger.info("Replaced severity_admin with %s rows", len(df))
 
 
+def replace_pin(df):
+    """Full transactional replace of the JIAF overall-PiN mirror."""
+    df = df[PIN_COLS].copy()
+    df["refreshed_at"] = datetime.now(timezone.utc)
+    with get_engine(write=True).begin() as conn:
+        conn.execute(text(f"DELETE FROM {SCHEMA}.pin_admin"))
+        df.to_sql(
+            "pin_admin",
+            conn,
+            schema=SCHEMA,
+            if_exists="append",
+            index=False,
+            chunksize=10_000,
+            method="multi",
+        )
+    logger.info("Replaced pin_admin with %s rows", len(df))
+
+
 def read_severity():
     return pd.read_sql(f"SELECT * FROM {SCHEMA}.severity_admin", get_engine())
+
+
+def read_pin():
+    return pd.read_sql(f"SELECT * FROM {SCHEMA}.pin_admin", get_engine())
 
 
 def read_plans():

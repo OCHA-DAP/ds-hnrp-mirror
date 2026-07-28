@@ -44,6 +44,7 @@
     <button id="tab-plans" class="active">Plans</button>
     <button id="tab-needs">Admin-level PiN</button>
     <button id="tab-sev">Severity</button>
+    <button id="tab-jpin">PiN × severity</button>
   </div>
 
   <section id="pane-plans">
@@ -123,6 +124,34 @@
     </div>
     <p class="note">Source: per-country JIAF workbooks on HDX (<code>*-jiaf-humanitarian-needs-pin-and-severity</code>) — intersectoral <b>final severity (1–5)</b> per admin area (admin-3 where published: BFA, COD, SYR). 2025+ only; UKR and a few nonstandard workbooks publish no severity sheet. Population is the area total, not people-in-phase.</p>
   </section>
+
+  <section id="pane-jpin" hidden>
+    <div class="controls">
+      <select id="jpin-country"></select>
+      <select id="jpin-year"></select>
+      <select id="jpin-min">
+        <option value="">All severities</option>
+        <option value="3">Severity 3+</option>
+        <option value="4">Severity 4+</option>
+        <option value="5">Severity 5</option>
+      </select>
+      <input type="search" id="jpin-search" placeholder="Search admin name…">
+      <span class="count" id="jpin-count"></span>
+      <button class="dl" id="jpin-dl">Download CSV</button>
+    </div>
+    <p class="note" id="jpin-dist" style="margin: 0 0 0.6rem"></p>
+    <div class="tablewrap">
+      <table id="jpin-table">
+        <thead><tr>
+          <th>Admin 1</th><th>Admin 2</th><th>Admin 3</th><th>Pop. group</th>
+          <th class="num">Population</th><th class="num">Severity</th>
+          <th class="num">Preliminary PiN</th><th class="num">Final PiN</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Source: per-country JIAF workbooks on HDX — intersectoral <b>overall PiN</b> per admin area × population group (worksheet "WS - 3.1 Overall PiN" / "PiN"). In 2026-cycle workbooks each row also carries its <b>final intersectoral severity</b>, so final PiN summed by severity is the PiN-by-severity distribution reintroduced by the 2025 Humanitarian Reset (overall PiN counts only phase-3+ areas in 2026). 2025 workbooks publish no severity column in the PiN sheet — join to the Severity tab's data on admin area + population group instead. Sums can differ slightly from the official HPC plan PiN (workbook vs. plan-level reconciliation).</p>
+  </section>
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
@@ -140,9 +169,9 @@ function download(name, text) {
 }
 
 // ---- tabs ----
-["plans", "needs", "sev"].forEach(t => $("#tab-" + t).addEventListener("click", () => setTab(t)));
+["plans", "needs", "sev", "jpin"].forEach(t => $("#tab-" + t).addEventListener("click", () => setTab(t)));
 function setTab(t) {
-  ["plans", "needs", "sev"].forEach(x => {
+  ["plans", "needs", "sev", "jpin"].forEach(x => {
     $("#tab-" + x).classList.toggle("active", x === t);
     $("#pane-" + x).hidden = x !== t;
   });
@@ -303,6 +332,61 @@ function renderSev() {
 $("#sev-dl").addEventListener("click", () => {
   const cols = ["admin1_code", "admin1_name", "admin2_code", "admin2_name", "admin3_code", "admin3_name", "population_group", "population", "final_severity"];
   download(`severity_${$("#sev-country").value}_${$("#sev-year").value}.csv`, toCSV(filteredSev(), cols));
+});
+
+// ---- JIAF overall PiN (PiN × severity) ----
+let JPIN_INDEX = [], JPIN = null;
+fetch("data/pin_index.json?" + Date.now()).then(r => r.ok ? r.json() : {countries: []}).then(d => {
+  JPIN_INDEX = d.countries || [];
+  $("#jpin-country").innerHTML = JPIN_INDEX.map(c => `<option value="${c.iso3}">${c.iso3}</option>`).join("");
+  if (JPIN_INDEX.length) fillJpinYears();
+});
+function fillJpinYears() {
+  const c = JPIN_INDEX.find(c => c.iso3 === $("#jpin-country").value) || JPIN_INDEX[0];
+  $("#jpin-year").innerHTML = [...c.years].sort((a, b) => b - a).map(y => `<option>${y}</option>`).join("");
+  loadJpin();
+}
+$("#jpin-country").addEventListener("input", fillJpinYears);
+$("#jpin-year").addEventListener("input", loadJpin);
+["jpin-min", "jpin-search"].forEach(id => $("#" + id).addEventListener("input", renderJpin));
+function loadJpin() {
+  const iso = $("#jpin-country").value, y = $("#jpin-year").value;
+  if (!iso || !y) return;
+  fetch(`data/pin/${iso}_${y}.json?` + Date.now()).then(r => r.json()).then(d => {
+    JPIN = d.rows.map(r => Object.fromEntries(d.columns.map((c, i) => [c, r[i]])));
+    renderJpin();
+  });
+}
+function filteredJpin() {
+  const min = $("#jpin-min").value, q = $("#jpin-search").value.toLowerCase();
+  return (JPIN || []).filter(r =>
+    (!min || r.severity >= +min) &&
+    (!q || [r.admin1_name, r.admin2_name, r.admin3_name].some(n => (n || "").toLowerCase().includes(q))))
+    .sort((a, b) => (b.severity ?? -1) - (a.severity ?? -1) || (b.final_pin ?? 0) - (a.final_pin ?? 0));
+}
+function renderJpin() {
+  const rows = filteredJpin();
+  $("#jpin-count").textContent = fmtFull(rows.length) + " rows";
+  const bySev = {};
+  let unclassified = 0;
+  (JPIN || []).forEach(r => {
+    if (r.final_pin == null) return;
+    if (r.severity == null) unclassified += r.final_pin;
+    else bySev[r.severity] = (bySev[r.severity] || 0) + r.final_pin;
+  });
+  const parts = Object.keys(bySev).sort().map(s => `sev ${s}: <b>${fmt(bySev[s])}</b>`);
+  if (unclassified) parts.push(`no severity column: <b>${fmt(unclassified)}</b>`);
+  $("#jpin-dist").innerHTML = parts.length ? "Final PiN by severity — " + parts.join(" · ") : "";
+  $("#jpin-table tbody").innerHTML = rows.slice(0, 3000).map(r => `
+    <tr><td>${r.admin1_name ?? ""}</td><td>${r.admin2_name ?? ""}</td><td>${r.admin3_name ?? ""}</td>
+    <td>${r.population_group ?? ""}</td><td class="num">${fmtFull(r.population)}</td>
+    <td class="num" style="background:${SEV_BG[r.severity] || ""}"><b>${r.severity ?? ""}</b></td>
+    <td class="num">${fmtFull(r.preliminary_pin)}</td><td class="num">${fmtFull(r.final_pin)}</td></tr>`).join("") +
+    (rows.length > 3000 ? `<tr><td colspan="8" class="count">…showing first 3,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
+}
+$("#jpin-dl").addEventListener("click", () => {
+  const cols = ["admin1_code", "admin1_name", "admin2_code", "admin2_name", "admin3_code", "admin3_name", "population_group", "population", "severity", "preliminary_pin", "final_pin"];
+  download(`jiaf_pin_${$("#jpin-country").value}_${$("#jpin-year").value}.csv`, toCSV(filteredJpin(), cols));
 });
 </script>
 </body>
