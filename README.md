@@ -73,6 +73,20 @@ uv run python scripts/export_site_data.py && open site/index.html
   its severity sheet has a real 3/4/5 spread). For analysis, sanity-check against
   `severity_admin` (the WS-3.2 final severity) before trusting a degenerate
   distribution.
+- **PiN-by-severity (PBS)** = Σ `final_pin` grouped by `severity` (per unit =
+  admin × population group × pocket). It partitions the overall PiN; classes 1–2
+  are ≈0 by construction (the 2026 template blanks PiN below severity 3 —
+  nonzero values there are manual overrides, e.g. refugee caseloads). In the
+  template both the mosaic max (overall PiN) and the intersectoral severity rule
+  run over the **8 core sectors only** — Protection AoRs (CP/GBV/MA/HLP) never
+  drive them — and "final" columns are formula defaults unless a validation
+  workshop overwrote the cell. Full mechanics + doc citations: KB page
+  `pipelines/hnrp-mirror.md`. Template ground truth: the blank WS-3A/3B tool on
+  the [OCHA KB JIAF Manuals page](https://humanitarian.atlassian.net/wiki/spaces/hpc/pages/3993829401/JIAF+Manuals)
+  ("HPC 2026 Tools"), methodology in the
+  [JIAF 2 Technical Manual](https://jiaf.info/wp-content/uploads/2024/07/JIAF-2-Technical-Manual_Final-for-2025-HPC.pdf)
+  (Mosaic: Box 21 p. 50; severity rule: Box 22 p. 50) and the
+  ["Overview of changes in JIAF PIN and Severity tool" (2025-08-22)](https://knowledge.base.unocha.org/wiki/download/attachments/3993829401/Overview%20of%20changes%20in%20JIAF%20PIN%20and%20Severity%20tool.docx?api=v2).
 - License: open, attribution to UN OCHA (HPC/FTS) and OCHA via HDX.
 
 ## Pcode quality (audited 2026-07 vs `public.polygon`, the team's COD-AB reference)
