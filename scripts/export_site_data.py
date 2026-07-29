@@ -39,7 +39,7 @@ SEVERITY_ROW_COLS = [
 PIN_ROW_COLS = [
     "admin1_code", "admin1_name", "admin2_code", "admin2_name",
     "admin3_code", "admin3_name", "population_group", "population",
-    "severity", "preliminary_pin", "final_pin",
+    "severity", "final_severity", "preliminary_pin", "final_pin",
 ]
 
 

@@ -144,13 +144,13 @@
       <table id="jpin-table">
         <thead><tr>
           <th>Admin 1</th><th>Admin 2</th><th>Admin 3</th><th>Pop. group</th>
-          <th class="num">Population</th><th class="num">Severity</th>
+          <th class="num">Population</th><th class="num" title="WS-3.2 final severity joined on the unit; falls back to the PiN sheet's own column where no severity sheet exists">Severity</th>
           <th class="num">Preliminary PiN</th><th class="num">Final PiN</th>
         </tr></thead>
         <tbody></tbody>
       </table>
     </div>
-    <p class="note">Source: per-country JIAF workbooks on HDX — intersectoral <b>overall PiN</b> per admin area × population group (worksheet "WS - 3.1 Overall PiN" / "PiN"). In 2026-cycle workbooks each row also carries its <b>final intersectoral severity</b>, so final PiN summed by severity is the PiN-by-severity distribution reintroduced by the 2025 Humanitarian Reset (overall PiN counts only phase-3+ areas in 2026). 2025 workbooks publish no severity column in the PiN sheet — join to the Severity tab's data on admin area + population group instead. Sums can differ slightly from the official HPC plan PiN (workbook vs. plan-level reconciliation).</p>
+    <p class="note">Source: per-country JIAF workbooks on HDX — intersectoral <b>overall PiN</b> per admin area × population group (worksheet "WS - 3.1 Overall PiN" / "PiN"). Final PiN summed by severity is the PiN-by-severity distribution reintroduced by the 2025 Humanitarian Reset (overall PiN counts only phase-3+ areas in 2026). The severity shown is the <b>WS-3.2 final severity joined on the unit</b> — the PiN sheet's own severity column is only a lookup and country offices sometimes break it (⚠ marks rows where the two disagree); where no severity sheet exists the sheet column is used as fallback. Sums can differ slightly from the official HPC plan PiN (workbook vs. plan-level reconciliation).</p>
   </section>
 </main>
 <script>
@@ -357,12 +357,13 @@ function loadJpin() {
     renderJpin();
   });
 }
+const effSev = (r) => r.final_severity ?? r.severity;  // WS-3.2 join first, PiN-sheet column as fallback
 function filteredJpin() {
   const min = $("#jpin-min").value, q = $("#jpin-search").value.toLowerCase();
   return (JPIN || []).filter(r =>
-    (!min || r.severity >= +min) &&
+    (!min || effSev(r) >= +min) &&
     (!q || [r.admin1_name, r.admin2_name, r.admin3_name].some(n => (n || "").toLowerCase().includes(q))))
-    .sort((a, b) => (b.severity ?? -1) - (a.severity ?? -1) || (b.final_pin ?? 0) - (a.final_pin ?? 0));
+    .sort((a, b) => (effSev(b) ?? -1) - (effSev(a) ?? -1) || (b.final_pin ?? 0) - (a.final_pin ?? 0));
 }
 function renderJpin() {
   const rows = filteredJpin();
@@ -371,21 +372,22 @@ function renderJpin() {
   let unclassified = 0;
   (JPIN || []).forEach(r => {
     if (r.final_pin == null) return;
-    if (r.severity == null) unclassified += r.final_pin;
-    else bySev[r.severity] = (bySev[r.severity] || 0) + r.final_pin;
+    const s = effSev(r);
+    if (s == null) unclassified += r.final_pin;
+    else bySev[s] = (bySev[s] || 0) + r.final_pin;
   });
   const parts = Object.keys(bySev).sort().map(s => `sev ${s}: <b>${fmt(bySev[s])}</b>`);
-  if (unclassified) parts.push(`no severity column: <b>${fmt(unclassified)}</b>`);
-  $("#jpin-dist").innerHTML = parts.length ? "Final PiN by severity — " + parts.join(" · ") : "";
+  if (unclassified) parts.push(`unclassified: <b>${fmt(unclassified)}</b>`);
+  $("#jpin-dist").innerHTML = parts.length ? "Final PiN by severity (WS-3.2 final) — " + parts.join(" · ") : "";
   $("#jpin-table tbody").innerHTML = rows.slice(0, 3000).map(r => `
     <tr><td>${r.admin1_name ?? ""}</td><td>${r.admin2_name ?? ""}</td><td>${r.admin3_name ?? ""}</td>
     <td>${r.population_group ?? ""}</td><td class="num">${fmtFull(r.population)}</td>
-    <td class="num" style="background:${SEV_BG[r.severity] || ""}"><b>${r.severity ?? ""}</b></td>
+    <td class="num" style="background:${SEV_BG[effSev(r)] || ""}" title="${r.final_severity != null && r.severity != null && r.final_severity !== r.severity ? "PiN-sheet column says " + r.severity : ""}"><b>${effSev(r) ?? ""}</b>${r.final_severity != null && r.severity != null && r.final_severity !== r.severity ? " ⚠" : ""}</td>
     <td class="num">${fmtFull(r.preliminary_pin)}</td><td class="num">${fmtFull(r.final_pin)}</td></tr>`).join("") +
     (rows.length > 3000 ? `<tr><td colspan="8" class="count">…showing first 3,000 of ${fmtFull(rows.length)} rows — narrow the filters or download the CSV.</td></tr>` : "");
 }
 $("#jpin-dl").addEventListener("click", () => {
-  const cols = ["admin1_code", "admin1_name", "admin2_code", "admin2_name", "admin3_code", "admin3_name", "population_group", "population", "severity", "preliminary_pin", "final_pin"];
+  const cols = ["admin1_code", "admin1_name", "admin2_code", "admin2_name", "admin3_code", "admin3_name", "population_group", "population", "severity", "final_severity", "preliminary_pin", "final_pin"];
   download(`jiaf_pin_${$("#jpin-country").value}_${$("#jpin-year").value}.csv`, toCSV(filteredJpin(), cols));
 });
 </script>

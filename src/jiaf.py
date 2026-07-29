@@ -296,6 +296,48 @@ def parse_pin_xlsx(content, iso3, year):
     return []
 
 
+def attach_final_severity(pin_df, sev_df):
+    """Join WS-3.2 final severity onto PiN rows as `final_severity`.
+
+    The PiN sheet's own severity column is only a lookup of WS-3.2 and
+    country offices break it (SSD 2026 pastes a constant; LBN 2026 leaves
+    pcodes blank, collapsing the template's ID key so every row inherits the
+    first unit's severity). WS-3.2 is authoritative, so PBS should group
+    final_pin by COALESCE(final_severity, severity).
+
+    Key: (iso3, year, population_group, deepest admin code — falling back to
+    deepest admin name). Rows that miss retry without the population group
+    (2025 workbooks often classify severity at area level only); area keys
+    with conflicting severities are treated as ambiguous and skipped.
+    """
+    if pin_df.empty or sev_df.empty:
+        pin_df["final_severity"] = pd.NA
+        return pin_df
+
+    def keys(df):
+        adm = df[["admin3_code", "admin2_code", "admin1_code"]].bfill(axis=1).iloc[:, 0]
+        name = df[["admin3_name", "admin2_name", "admin1_name"]].bfill(axis=1).iloc[:, 0]
+        adm = adm.where(adm.notna(), name).map(lambda v: _norm(v) if pd.notna(v) else "")
+        pg = df["population_group"].map(lambda v: _norm(v) if pd.notna(v) else "")
+        base = df["iso3"] + "|" + df["year"].astype(str) + "|" + adm
+        return base + "|" + pg, base
+
+    sev_k1, sev_k2 = keys(sev_df)
+    sev = sev_df.assign(_k1=sev_k1, _k2=sev_k2)
+    unit_map = sev.groupby("_k1")["final_severity"].agg(
+        lambda s: s.iloc[0] if s.nunique() == 1 else None
+    )
+    area_map = sev.groupby("_k2")["final_severity"].agg(
+        lambda s: s.iloc[0] if s.nunique() == 1 else None
+    )
+    pin_k1, pin_k2 = keys(pin_df)
+    joined = pin_k1.map(unit_map)
+    joined = joined.where(joined.notna(), pin_k2.map(area_map))
+    pin_df = pin_df.copy()
+    pin_df["final_severity"] = joined.astype("Int64")
+    return pin_df
+
+
 def _year_resources(ds):
     """(year, resource) pairs for a dataset's XLSX resources, newest first.
 

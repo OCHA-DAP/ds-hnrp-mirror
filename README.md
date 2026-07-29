@@ -40,7 +40,7 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 - `hpc.plan_caseloads` — cluster-level caseloads + requirements. PK `(plan_id, entity_id)`.
 - `hpc.needs_admin` — HAPI humanitarian-needs mirror + Global HNO admin-3 rows (admin 0–3 × sector × category × status). Full replace on refresh.
 - `hpc.severity_admin` — JIAF intersectoral final severity (1–5) per admin area × population group, parsed from per-country workbooks (localized EN/FR/ES templates; anchor-based parser, unparseable files logged). Full replace on refresh.
-- `hpc.pin_admin` — JIAF intersectoral overall PiN (preliminary + final) per admin area × population group, from the same workbooks ("WS - 3.1 Overall PiN" / "PiN" sheet). 2026-cycle rows carry their own `severity` — final PiN grouped by it is the **PiN-by-severity distribution** the 2025 Humanitarian Reset reintroduced (overall PiN counts only phase-3+ areas from HPC 2026 on). 2025 rows have `severity` NULL — join `severity_admin` on (iso3, year, admin codes, population_group). Full replace on refresh.
+- `hpc.pin_admin` — JIAF intersectoral overall PiN (preliminary + final) per admin area × population group, from the same workbooks ("WS - 3.1 Overall PiN" / "PiN" sheet). Two severity columns: `severity` = the PiN sheet's own column, mirrored as-is (it's only a lookup of WS-3.2 and country offices break it); **`final_severity` = the WS-3.2 final severity joined on the unit at refresh time** (deepest admin code, name fallback; population group with area-level fallback). **PBS = final PiN grouped by `COALESCE(final_severity, severity)`** — the distribution the 2025 Humanitarian Reset reintroduced (overall PiN counts only phase-3+ areas from HPC 2026 on). Refresh logs warn when the two columns disagree. Full replace on refresh.
 
 ## Pipelines (GitHub Actions)
 
@@ -68,11 +68,13 @@ uv run python scripts/export_site_data.py && open site/index.html
   column). A few workbooks fill only one of preliminary/final (NGA 2025 publishes
   no final PiN). Where a dataset re-uploads a revised workbook (COD 2026), the
   **newest resource wins** for both severity and PiN.
-- `pin_admin.severity` is the PiN sheet's own column, mirrored as-is — a few
-  country offices fill it carelessly (SSD 2026 has a constant 4 on every row while
-  its severity sheet has a real 3/4/5 spread). For analysis, sanity-check against
-  `severity_admin` (the WS-3.2 final severity) before trusting a degenerate
-  distribution.
+- `pin_admin.severity` (the PiN sheet's own column) is untrustworthy: it's a live
+  `INDEX/MATCH` of WS-3.2 keyed on a pcode-built ID, and offices break it — SSD 2026
+  pasted a constant 4 over it; a LBN 2026 preliminary workbook left all P-Codes
+  blank, collapsing every ID to `""` so `MATCH` returned the *first* unit's severity
+  for all 76 rows (a wrong-but-plausible all-3 column). That's why the refresh joins
+  WS-3.2 directly into `final_severity` and logs disagreements — use
+  `COALESCE(final_severity, severity)` for PBS, never `severity` alone.
 - **PiN-by-severity (PBS)** = Σ `final_pin` grouped by `severity` (per unit =
   admin × population group × pocket). It partitions the overall PiN; classes 1–2
   are ≈0 by construction (the 2026 template blanks PiN below severity 3 —

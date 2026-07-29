@@ -46,7 +46,8 @@ SEVERITY_COLS = [
 PIN_COLS = [
     "iso3", "year", "admin1_code", "admin1_name", "admin2_code", "admin2_name",
     "admin3_code", "admin3_name",
-    "population_group", "population", "severity", "preliminary_pin", "final_pin",
+    "population_group", "population", "severity", "final_severity",
+    "preliminary_pin", "final_pin",
 ]
 
 
@@ -147,10 +148,12 @@ def ensure_tables():
         population_group text,
         population bigint,
         severity integer,
+        final_severity integer,
         preliminary_pin bigint,
         final_pin bigint,
         refreshed_at timestamptz
     );
+    ALTER TABLE {SCHEMA}.pin_admin ADD COLUMN IF NOT EXISTS final_severity integer;
     CREATE INDEX IF NOT EXISTS pin_admin_loc_idx
         ON {SCHEMA}.pin_admin (iso3, year, severity);
     """

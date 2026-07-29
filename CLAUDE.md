@@ -16,12 +16,17 @@ appeals, RRPs, CAPs, other). GH Pages explorer deployed from Actions.
   distribution; 2025 rows: severity NULL, join severity_admin; newest HDX
   resource wins per country-year, so revised re-uploads supersede; mirrored
   as-is — SSD 2026 fills a constant severity 4, cross-check severity_admin).
-- PBS = sum(final_pin) by severity per unit (admin×popgroup×pocket); partitions
-  overall PiN; sev 1–2 ≈ 0 by template design (PiN blanked below sev 3). Template
-  formulas: mosaic max + severity IFS run over core sectors ONLY (AoRs excluded);
-  final cols = formula defaults unless workshop-overwritten. Blank WS-3A/3B
-  template + "Overview of changes" doc: OCHA KB wiki page "JIAF Manuals" (HPC
-  2026 Tools); README + KB pipelines/hnrp-mirror.md have links & page numbers.
+- PBS = sum(final_pin) by COALESCE(final_severity, severity) per unit
+  (admin×popgroup×pocket); partitions overall PiN; sev 1–2 ≈ 0 by template design
+  (PiN blanked below sev 3). pin_admin.final_severity = WS-3.2 join done at refresh
+  (jiaf.attach_final_severity: deepest-code key, name + area-level fallbacks) —
+  NEVER trust pin_admin.severity alone: it's a pcode-keyed lookup offices break
+  (SSD 2026 pasted constant; LBN 2026 prelim had blank pcodes → all IDs "" → MATCH
+  broadcast row 1's severity to every unit). Template formulas: mosaic max +
+  severity IFS run over core sectors ONLY (AoRs excluded; sector count varies by
+  country — LBN runs 9); final cols = formula defaults unless workshop-overwritten.
+  Blank WS-3A/3B template + "Overview of changes" doc: OCHA KB wiki page "JIAF
+  Manuals" (HPC 2026 Tools); README + KB pipelines/hnrp-mirror.md have links.
 - Sources: HPC API + FTS (all years, plan/cluster level) and HDX HAPI
   `affected-people/humanitarian-needs` (admin 0–2, Global-HNO countries only, 2024+).
   Flash appeals/RRPs have **no** public admin-level PiN — plan/cluster is their max.
