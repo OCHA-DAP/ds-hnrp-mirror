@@ -89,6 +89,16 @@ uv run python scripts/export_site_data.py && open site/index.html
   [JIAF 2 Technical Manual](https://jiaf.info/wp-content/uploads/2024/07/JIAF-2-Technical-Manual_Final-for-2025-HPC.pdf)
   (Mosaic: Box 21 p. 50; severity rule: Box 22 p. 50) and the
   ["Overview of changes in JIAF PIN and Severity tool" (2025-08-22)](https://knowledge.base.unocha.org/wiki/download/attachments/3993829401/Overview%20of%20changes%20in%20JIAF%20PIN%20and%20Severity%20tool.docx?api=v2).
+- **Sense-checking**: colleagues usually check HNRP/GHO headline figures against the
+  [GHO country plans interactive dashboard](https://humanitarianaction.info/article/gho-country-plans-interactive-dashboard)
+  (humanitarianaction.info, Power BI). Its downloadable plan table is the HDX dataset
+  `global-humanitarian-overview-<year>` and carries HPC `plan_id`, so it joins
+  directly to `hpc.plans`. That export is a **snapshot** (refreshed at GHO
+  publication points: December launch + June Mid-Year Review) while this mirror
+  refreshes daily from the same HPC/FTS APIs — verified 2026-08-04: all 35 GHO-2026
+  plans present, figures exact except plans revised upstream after the June export
+  (COL/COD/VEN), where the mirror matched the live HPC API. Mid-cycle, expect the
+  mirror to be *ahead* of the dashboard export, especially on funding.
 - License: open, attribution to UN OCHA (HPC/FTS) and OCHA via HDX.
 
 ## Pcode quality (audited 2026-07 vs `public.polygon`, the team's COD-AB reference)

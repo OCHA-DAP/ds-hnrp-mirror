@@ -47,4 +47,10 @@ appeals, RRPs, CAPs, other). GH Pages explorer deployed from Actions.
   pcode-prefix vs public.polygon (prod read) in refresh_needs.py — upstream CSV leaves
   them blank, and BFA/COD/ETH/SYR have NO HAPI subnational rows (adm3-only countries),
   so polygon is the only parent universe for them.
+- Sense-check reference colleagues use: the GHO country-plans dashboard
+  (humanitarianaction.info/article/gho-country-plans-interactive-dashboard).
+  Its HDX export (`global-humanitarian-overview-<year>`) carries HPC `plan_id`
+  (joins to `hpc.plans`) but is a Dec/June snapshot — the mirror pulls the same
+  HPC/FTS APIs daily, so mid-cycle diffs = upstream revisions, not mirror bugs
+  (verified 2026-08-04: 35/35 plans, exact except July-revised COL/COD/VEN).
 - KB pages: `pipelines/hnrp-mirror.md`, `infrastructure/datasets/hnrp.md`.
