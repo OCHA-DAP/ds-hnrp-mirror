@@ -49,6 +49,15 @@ PIN_COLS = [
     "population_group", "population", "severity", "final_severity",
     "preliminary_pin", "final_pin",
 ]
+MONITORING_COLS = [
+    "snapshot_date", "plan_id", "iso3", "country", "year", "pcode",
+    "location_path", "admin_level", "admin0_code", "admin1_code",
+    "cluster_name", "ic_severity", "ic_severity_class",
+    "in_need", "targeted", "prioritized_target", "reached", "prioritized_reached",
+]
+MONITORING_PERIOD_COLS = [
+    "snapshot_date", "plan_id", "year", "country", "latest_update",
+]
 
 
 def get_engine(write=False):
@@ -156,6 +165,45 @@ def ensure_tables():
     ALTER TABLE {SCHEMA}.pin_admin ADD COLUMN IF NOT EXISTS final_severity integer;
     CREATE INDEX IF NOT EXISTS pin_admin_loc_idx
         ON {SCHEMA}.pin_admin (iso3, year, severity);
+    -- Response monitoring, from the GHO dashboard's semantic model.
+    -- APPEND-ONLY, unlike every other table here: `reached` is cumulative and
+    -- climbs through the plan year, and the dashboard only ever shows current
+    -- state. Overwriting each refresh would throw away the only thing worth
+    -- refreshing often for. One row per (snapshot, plan, area, cluster);
+    -- re-running on the same day overwrites that day's rows and nothing else.
+    CREATE TABLE IF NOT EXISTS {SCHEMA}.monitoring_admin (
+        snapshot_date date,
+        plan_id integer,
+        iso3 text,
+        country text,
+        year integer,
+        pcode text,
+        location_path text,
+        admin_level integer,
+        admin0_code text,
+        admin1_code text,
+        cluster_name text,
+        ic_severity integer,
+        ic_severity_class text,
+        in_need bigint,
+        targeted bigint,
+        prioritized_target bigint,
+        reached bigint,
+        prioritized_reached bigint,
+        refreshed_at timestamptz,
+        PRIMARY KEY (snapshot_date, plan_id, pcode, cluster_name)
+    );
+    CREATE INDEX IF NOT EXISTS monitoring_admin_latest_idx
+        ON {SCHEMA}.monitoring_admin (iso3, year, cluster_name, snapshot_date DESC);
+    CREATE TABLE IF NOT EXISTS {SCHEMA}.monitoring_periods (
+        snapshot_date date,
+        plan_id integer,
+        year integer,
+        country text,
+        latest_update text,
+        refreshed_at timestamptz,
+        PRIMARY KEY (snapshot_date, plan_id)
+    );
     """
     with get_engine(write=True).begin() as conn:
         conn.execute(text(ddl))
@@ -251,6 +299,48 @@ def replace_pin(df):
             method="multi",
         )
     logger.info("Replaced pin_admin with %s rows", len(df))
+
+
+def _upsert_snapshot(table, cols, df, snapshot_date):
+    """Insert one day's snapshot, replacing that same day if it already ran.
+
+    Deliberately NOT a full replace: earlier snapshots are the time series.
+    """
+    df = df[[c for c in cols if c != "snapshot_date"]].copy()
+    df["snapshot_date"] = snapshot_date
+    df["refreshed_at"] = datetime.now(timezone.utc)
+    with get_engine(write=True).begin() as conn:
+        conn.execute(
+            text(f"DELETE FROM {SCHEMA}.{table} WHERE snapshot_date = :d"),
+            {"d": snapshot_date},
+        )
+        df.to_sql(table, conn, schema=SCHEMA, if_exists="append", index=False,
+                  chunksize=10_000, method="multi")
+    logger.info("Wrote %s rows to %s for %s", len(df), table, snapshot_date)
+
+
+def write_monitoring(df, snapshot_date):
+    _upsert_snapshot("monitoring_admin", MONITORING_COLS, df, snapshot_date)
+
+
+def write_monitoring_periods(df, snapshot_date):
+    _upsert_snapshot("monitoring_periods", MONITORING_PERIOD_COLS, df, snapshot_date)
+
+
+def read_monitoring(latest_only=True, cluster=None):
+    """Monitoring rows; by default only the most recent snapshot per plan."""
+    where = "WHERE cluster_name = %(cluster)s" if cluster else ""
+    if latest_only:
+        sql = f"""
+        SELECT m.* FROM {SCHEMA}.monitoring_admin m
+        JOIN (SELECT plan_id, max(snapshot_date) AS d
+              FROM {SCHEMA}.monitoring_admin GROUP BY plan_id) l
+          ON l.plan_id = m.plan_id AND l.d = m.snapshot_date
+        {where}
+        """
+    else:
+        sql = f"SELECT * FROM {SCHEMA}.monitoring_admin m {where}"
+    return pd.read_sql(sql, get_engine(), params={"cluster": cluster} if cluster else None)
 
 
 def read_severity():

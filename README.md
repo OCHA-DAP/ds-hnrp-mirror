@@ -13,6 +13,7 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 | [HDX HAPI](https://hapi.humdata.org) `affected-people/humanitarian-needs` | PiN by admin area, sector, category, population status (Global HNO) | up to **admin-2** | 2024+ (~24 HNRP countries) |
 | [Global HPC HNO CSVs](https://data.humdata.org/dataset/global-hpc-hno) | Admin-3 PiN rows HAPI truncates | **admin-3** (BFA, COD, ETH, MMR, SYR) | 2024–2025 |
 | [Per-country JIAF workbooks](https://data.humdata.org/search?q=jiaf%20humanitarian%20needs) (`*-jiaf-humanitarian-needs-*`) | Intersectoral **final severity (1–5)** and **overall PiN (preliminary/final)** per admin area × population group | admin-2 (admin-3: BFA, COD, SYR) | 2025+ (~20 countries) |
+| [GHO monitoring dashboard](https://humanitarianaction.info/document/global-humanitarian-overview-2026/article/monitoring-humanitarian-action-interactive-dashboard) (Power BI semantic model) | **People targeted, prioritized target, reached, prioritized reached** per admin area × cluster, plus intersectoral severity | admin-2 (admin-3: COD, MMR, SYR) | 2026 (20 plans) |
 
 ### Coverage notes
 
@@ -33,6 +34,16 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
   [`global-hpc-hno`](https://data.humdata.org/dataset/global-hpc-hno), and per-country
   `*_hpc_needs_api_<year>.csv`). If HAPI were ever discontinued, swapping `src/hapi.py`
   to read those CSVs is a small change; the DB schema would not change.
+- **Subnational `reached` has exactly one public source** — the GHO monitoring
+  dashboard. The HPC API publishes no measurements for 2026 plans
+  (`measurementsGenerated: false`, empty `measurements` arrays) and HAPI's 2026
+  `population_status` rows stop at admin-0, with `REA` present only for SOM 2024
+  and VEN 2024. Everything subnational about the *response* (as opposed to needs)
+  comes from `monitoring_admin`.
+- Monitoring coverage is **uneven by design** — partners report what they report.
+  Syria carries PiN with no target or reach; Ukraine and Venezuela are near-empty
+  (VEN has reach but no PiN/target); Cameroon and Somalia have targets but no
+  prioritized target. Absence is not zero: read these as unreported, not nil.
 
 ## Tables (dev DB, schema `hpc`)
 
@@ -41,10 +52,23 @@ Postgres (dev, schema `hpc`), refreshed automatically, with a
 - `hpc.needs_admin` — HAPI humanitarian-needs mirror + Global HNO admin-3 rows (admin 0–3 × sector × category × status). Full replace on refresh.
 - `hpc.severity_admin` — JIAF intersectoral final severity (1–5) per admin area × population group, parsed from per-country workbooks (localized EN/FR/ES templates; anchor-based parser, unparseable files logged). Full replace on refresh.
 - `hpc.pin_admin` — JIAF intersectoral overall PiN (preliminary + final) per admin area × population group, from the same workbooks ("WS - 3.1 Overall PiN" / "PiN" sheet). Two severity columns: `severity` = the PiN sheet's own column, mirrored as-is (it's only a lookup of WS-3.2 and country offices break it); **`final_severity` = the WS-3.2 final severity joined on the unit at refresh time** (deepest admin code, name fallback; population group with area-level fallback). **PBS = final PiN grouped by `COALESCE(final_severity, severity)`** — the distribution the 2025 Humanitarian Reset reintroduced (overall PiN counts only phase-3+ areas from HPC 2026 on). Refresh logs warn when the two columns disagree. Full replace on refresh.
+- `hpc.monitoring_admin` — subnational response monitoring from the GHO dashboard: `in_need`, `targeted`, `prioritized_target`, `reached`, `prioritized_reached` per admin area × cluster, with the area's intersectoral severity. The `HNRP` cluster row is the intersectoral figure the dashboard's country table shows. **Append-only**, PK `(snapshot_date, plan_id, pcode, cluster_name)` — see below.
+- `hpc.monitoring_periods` — per-plan reporting vintage (`latest_update`: the month a country last reported). PK `(snapshot_date, plan_id)`.
+
+### Why monitoring is append-only
+
+Every other table here is a full replace. `monitoring_admin` is not, because
+`reached` is **cumulative and climbs through the plan year** while the dashboard
+only ever exposes current state — it keeps no history of its own. Replacing on
+each refresh would discard the single thing worth refreshing frequently for.
+Re-running on the same day overwrites that day's rows and leaves earlier
+snapshots alone. Read the latest with `storage.read_monitoring()`, or take
+`max(snapshot_date)` per `plan_id`; a plan's figures only actually move when its
+`monitoring_periods.latest_update` month does.
 
 ## Pipelines (GitHub Actions)
 
-- **Refresh HNRP mirror** (`refresh-hnrp.yml`) — daily 04:17 UTC refreshes current/previous/next plan years (HPC + FTS), then the admin-level PiN (HAPI + Global HNO adm3) and JIAF severity mirrors; Sunday 02:47 UTC runs the full historical backfill. Manual dispatch with `all_years` for an on-demand backfill.
+- **Refresh HNRP mirror** (`refresh-hnrp.yml`) — daily 04:17 UTC refreshes current/previous/next plan years (HPC + FTS), then the admin-level PiN (HAPI + Global HNO adm3), JIAF severity, and subnational monitoring mirrors; Sunday 02:47 UTC runs the full historical backfill. Manual dispatch with `all_years` for an on-demand backfill.
 - **Deploy explorer site** (`deploy-site.yml`) — chains off a successful refresh (plus a daily backstop), exports `site/data/*.json` from the DB and deploys `site/` to GitHub Pages. Nothing is committed; data is regenerated each deploy.
 
 ## Local use
@@ -55,12 +79,35 @@ cp .env.example .env  # fill in creds
 uv run python scripts/refresh_hpc.py --years 2025,2026
 uv run python scripts/refresh_needs.py
 uv run python scripts/refresh_jiaf.py
+uv run python scripts/refresh_monitoring.py --dry-run   # fetch + summarise only
 uv run python scripts/export_site_data.py && open site/index.html
 ```
 
 ## Gotchas
 
 - Key on `plan_id` (HPC) — plan **codes/names change** between versions and years; "HNRP" vs "HNO + HRP" is a naming shift around 2024.
+- **`monitoring_admin` is a scrape, not an API contract.** The GHO dashboard is a
+  publish-to-web Power BI report — public and anonymous by design, resource key
+  in the embed URL, no auth bypass — but nothing obliges OCHA to keep the model
+  stable. One of the columns is misspelled upstream (`People priritized`), and
+  the day that typo is fixed a trusting parser would write zeros over a good
+  snapshot. So the refresh validates every entity and column against the report's
+  `conceptualschema` **before** issuing a data query and raises `SchemaChanged`
+  otherwise; append-only means the last good snapshot survives the failure. It
+  also aborts if a per-country query comes back at the row-window cap, since a
+  truncated result looks like a complete one. The durable fix is asking OCHA for
+  the feed behind the report — worth doing.
+- **Subnational monitoring sums sit below the national figures** the dashboard
+  prints on its country table (Sudan 2.6M reached subnationally vs 8.0M
+  nationally; Chad 0.05M vs 1.1M). A lot of delivery is reported without a
+  location attached. Per-area reach is a floor, not a decomposition of the
+  headline — the refresh logs how many plans fall short of 90%.
+- **`reached` can exceed `targeted` in a unit** (Afghanistan AF0101: 224,446
+  reached against 209,847 targeted). The three quantities are not strictly
+  nested — don't build a visual that assumes reach ⊆ target ⊆ PiN.
+- Monitoring figures carry a **per-country vintage**, not a common as-of date:
+  Afghanistan last reported March, DRC May, Chad June, OPT January. Join
+  `monitoring_periods` and say which month is on screen.
 - FTS funding is as-reported (self-reported, lags); a low % funded is not a data error.
 - HAPI category rows **overlap** (e.g. Adult / Total / by-gender) — filter, don't sum across categories.
 - `pin_admin` national sums can differ from the official plan PiN in `hpc.plans`

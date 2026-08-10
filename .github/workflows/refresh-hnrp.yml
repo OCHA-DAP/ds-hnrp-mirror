@@ -77,3 +77,25 @@ jobs:
           DSCI_AZ_DB_DEV_PW_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_PW_WRITE }}
           PGSSLMODE: require
         run: uv run --no-sync python scripts/refresh_jiaf.py
+
+  # Subnational response monitoring. Runs after `hpc` because the dashboard
+  # carries plan ids only — ISO3 is joined from hpc.plans. Appends a dated
+  # snapshot rather than replacing, so `reached` accumulates into a time series
+  # the source itself does not keep.
+  monitoring:
+    runs-on: ubuntu-latest
+    needs: hpc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install --no-sources -e .
+      - name: Refresh subnational targeted / prioritized / reached
+        env:
+          DSCI_AZ_DB_DEV_HOST: ${{ secrets.DSCI_AZ_DB_DEV_HOST }}
+          DSCI_AZ_DB_DEV_UID_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_UID_WRITE }}
+          DSCI_AZ_DB_DEV_PW_WRITE: ${{ secrets.DSCI_AZ_DB_DEV_PW_WRITE }}
+          PGSSLMODE: require
+        run: uv run --no-sync python scripts/refresh_monitoring.py
