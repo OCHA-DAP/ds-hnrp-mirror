@@ -40,7 +40,13 @@ def attach_iso3(df):
     Regional plans span several countries and have no single ISO3; their rows
     keep a null and are identified by plan_id.
     """
-    plans = pd.read_sql("SELECT plan_id, iso3 FROM hpc.plans", storage.get_engine())
+    # write=True even though this only reads: the refresh workflow carries the
+    # WRITE credentials alone (the read pair is only in the deploy job), so a
+    # read engine here connects as user "None" and the job dies on auth. Every
+    # other refresh script touches the DB solely through the writer for the same
+    # reason. The writer can read.
+    plans = pd.read_sql("SELECT plan_id, iso3 FROM hpc.plans",
+                        storage.get_engine(write=True))
     plans = plans[~plans["iso3"].fillna("").str.contains(";")]
     df = df.merge(plans, on="plan_id", how="left")
     missing = sorted(df.loc[df["iso3"].isna(), "country"].dropna().unique())
@@ -85,7 +91,8 @@ def main():
     # a lot of delivery is reported without a location attached. Log the gap so
     # it reads as a known property of the source, not a broken join.
     plans = pd.read_sql(
-        "SELECT plan_id, targeted AS plan_targeted FROM hpc.plans", storage.get_engine())
+        "SELECT plan_id, targeted AS plan_targeted FROM hpc.plans",
+        storage.get_engine(write=True))
     cmp = (inter.groupby("plan_id")[["targeted"]].sum()
            .merge(plans.set_index("plan_id"), left_index=True, right_index=True))
     short = cmp[cmp["targeted"] < 0.9 * cmp["plan_targeted"].fillna(0)]
