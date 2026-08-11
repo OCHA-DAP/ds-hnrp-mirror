@@ -56,6 +56,13 @@ SEED_CLUSTER = "https://wabi-north-europe-j-primary-redirect.analysis.windows.ne
 
 ENTITY = "disaggregated_caseloads"
 PERIOD_ENTITY = "tbl_MonitoringPeriod"
+# The dashboard's own country table. Its figures are the PUBLISHED national ones,
+# and they are NOT the sum of the subnational rows in `disaggregated_caseloads`:
+# Chad attributes 3.44M of a 4.51M PiN to any area at all, and Ukraine, Syria and
+# Venezuela attribute none of their targets. Summing areas to get a country total
+# therefore understates it by construction, which is why this entity is mirrored
+# separately rather than derived.
+NATIONAL_ENTITY = "reprio_caseloads"
 
 # Grouping columns and summed measures, as named in the semantic model.
 # `People priritized` is misspelled upstream — mirrored verbatim on purpose.
@@ -69,6 +76,26 @@ MEASURE_COLS = [
     "People reached", "People prioritized reached",
 ]
 PERIOD_COLS = ["planId", "Year", "Country", "Latest update date"]
+
+# The national table names the same five measures differently from the
+# disaggregated one ("target", not "People targeted"), so it needs its own map.
+NATIONAL_DIM_COLS = ["planId", "Country", "Year", "Cluster", "Admin0 Pcode"]
+NATIONAL_MEASURE_COLS = [
+    "People in need", "target", "targetReprio", "People Reached",
+    "People Reached prioritized",
+]
+NATIONAL_COLUMN_MAP = {
+    "planId": "plan_id",
+    "Country": "country",
+    "Year": "year",
+    "Cluster": "cluster_name",
+    "Admin0 Pcode": "admin0_code",
+    "People in need": "in_need",
+    "target": "targeted",
+    "targetReprio": "prioritized_target",
+    "People Reached": "reached",
+    "People Reached prioritized": "prioritized_reached",
+}
 
 # Model column -> our column.
 COLUMN_MAP = {
@@ -209,13 +236,15 @@ def validate_schema():
     ents = {e["Name"]: {p["Name"] for p in e.get("Properties", [])}
             for e in entities(conceptual_schema()) or []}
     for name, cols in ((ENTITY, DIM_COLS + MEASURE_COLS),
-                       (PERIOD_ENTITY, PERIOD_COLS)):
+                       (PERIOD_ENTITY, PERIOD_COLS),
+                       (NATIONAL_ENTITY, NATIONAL_DIM_COLS + NATIONAL_MEASURE_COLS)):
         if name not in ents:
             raise SchemaChanged(f"entity {name!r} is gone from the published model")
         missing = [c for c in cols if c not in ents[name]]
         if missing:
             raise SchemaChanged(f"{name}: columns no longer published: {missing}")
-    logger.info("Schema check passed (%s, %s)", ENTITY, PERIOD_ENTITY)
+    logger.info("Schema check passed (%s, %s, %s)",
+                ENTITY, PERIOD_ENTITY, NATIONAL_ENTITY)
 
 
 def _field(alias, prop):
@@ -346,6 +375,35 @@ def fetch_all(intersectoral_only=False):
         logger.info("  %s: %s rows", country, len(got))
         rows.extend(got)
     return [{COLUMN_MAP[k]: v for k, v in r.items() if k in COLUMN_MAP} for r in rows]
+
+
+def fetch_national(intersectoral_only=False):
+    """The published national caseload per plan — the dashboard's own headline.
+
+    Small enough for one query (a few hundred plan x cluster rows), so unlike
+    fetch_all this does not page by country.
+
+    Use these figures for any country total. The subnational rows are an
+    ATTRIBUTION of the national caseload to areas, and it is routinely partial:
+    the source itself leaves a quarter of Chad's PiN on no area, and Ukraine,
+    Syria and Venezuela report subnational targets of zero throughout. A total
+    summed from areas is a floor, not the country's figure.
+    """
+    rows = query(NATIONAL_ENTITY, cols=NATIONAL_DIM_COLS,
+                 measures=NATIONAL_MEASURE_COLS)
+    out = []
+    for r in rows:
+        if r.get("planId") is None:
+            continue
+        if intersectoral_only and r.get("Cluster") != INTERSECTORAL_CLUSTER:
+            continue
+        row = {NATIONAL_COLUMN_MAP[k]: v for k, v in r.items()
+               if k in NATIONAL_COLUMN_MAP}
+        row["plan_id"] = int(row["plan_id"])
+        row["year"] = int(row["year"]) if row.get("year") else None
+        out.append(row)
+    logger.info("National caseloads: %s rows", len(out))
+    return out
 
 
 def fetch_periods():

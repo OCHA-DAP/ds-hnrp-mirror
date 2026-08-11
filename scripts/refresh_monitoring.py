@@ -87,19 +87,34 @@ def main():
     totals = inter[NUMERIC].sum()
     logger.info("Intersectoral totals: " + " · ".join(
         f"{c}={int(totals[c]):,}" for c in NUMERIC))
-    # Subnational sums sit BELOW the national figures the dashboard prints:
-    # a lot of delivery is reported without a location attached. Log the gap so
-    # it reads as a known property of the source, not a broken join.
-    plans = pd.read_sql(
-        "SELECT plan_id, targeted AS plan_targeted FROM hpc.plans",
-        storage.get_engine(write=True))
-    cmp = (inter.groupby("plan_id")[["targeted"]].sum()
-           .merge(plans.set_index("plan_id"), left_index=True, right_index=True))
-    short = cmp[cmp["targeted"] < 0.9 * cmp["plan_targeted"].fillna(0)]
-    if len(short):
-        logger.info("%s plan(s) whose subnational targeted is <90%% of the plan "
-                    "total — expected where partners report without a location",
-                    len(short))
+    nat_rows = gho_monitoring.fetch_national(
+        intersectoral_only=args.intersectoral_only)
+    if not nat_rows:
+        raise SystemExit("No national rows returned — refusing to write an empty snapshot")
+    nat = pd.DataFrame(nat_rows)
+    for c in NUMERIC + ["plan_id", "year"]:
+        if c in nat:
+            nat[c] = pd.to_numeric(nat[c], errors="coerce")
+    nat = attach_iso3(nat)
+
+    # The subnational rows sum BELOW these national figures, and that is a
+    # property of the source rather than a broken join: partners report a lot of
+    # delivery with no location attached, and some countries attribute none of a
+    # measure to any area at all. Log the size of the gap per plan so a NEW gap
+    # is distinguishable from the standing ones.
+    nat_inter = nat[nat["cluster_name"] == gho_monitoring.INTERSECTORAL_CLUSTER]
+    cmp = (inter.groupby("plan_id")[NUMERIC].sum()
+           .join(nat_inter.set_index("plan_id")[NUMERIC], rsuffix="_national",
+                 how="inner"))
+    who = nat_inter.set_index("plan_id")["iso3"].fillna("?").to_dict()
+    for measure in ("in_need", "targeted"):
+        national = cmp[f"{measure}_national"].replace(0, pd.NA)
+        share = (cmp[measure] / national).dropna()
+        low = share[share < 0.9].sort_values()
+        if len(low):
+            logger.info("%s: %s of %s plan(s) attribute <90%% of the national "
+                        "figure to areas — %s", measure, len(low), len(share),
+                        ", ".join(f"{who.get(p, p)}={s:.0%}" for p, s in low.items()))
 
     periods = pd.DataFrame(gho_monitoring.fetch_periods())
     logger.info("Monitoring vintages for %s plans", len(periods))
@@ -110,6 +125,7 @@ def main():
 
     storage.ensure_tables()
     storage.write_monitoring(df, snapshot)
+    storage.write_monitoring_national(nat, snapshot)
     storage.write_monitoring_periods(periods, snapshot)
 
 

@@ -58,6 +58,11 @@ MONITORING_COLS = [
 MONITORING_PERIOD_COLS = [
     "snapshot_date", "plan_id", "year", "country", "latest_update",
 ]
+MONITORING_NATIONAL_COLS = [
+    "snapshot_date", "plan_id", "iso3", "country", "year", "admin0_code",
+    "cluster_name",
+    "in_need", "targeted", "prioritized_target", "reached", "prioritized_reached",
+]
 
 
 def get_engine(write=False):
@@ -195,6 +200,29 @@ def ensure_tables():
     );
     CREATE INDEX IF NOT EXISTS monitoring_admin_latest_idx
         ON {SCHEMA}.monitoring_admin (iso3, year, cluster_name, snapshot_date DESC);
+    -- The published national caseload, mirrored alongside the subnational rows
+    -- rather than summed from them. The two do NOT agree and are not meant to:
+    -- monitoring_admin is an attribution of this figure to areas, and the source
+    -- leaves part of it unattributed in most countries. Any country total shown
+    -- to a reader comes from here.
+    CREATE TABLE IF NOT EXISTS {SCHEMA}.monitoring_national (
+        snapshot_date date,
+        plan_id integer,
+        iso3 text,
+        country text,
+        year integer,
+        admin0_code text,
+        cluster_name text,
+        in_need bigint,
+        targeted bigint,
+        prioritized_target bigint,
+        reached bigint,
+        prioritized_reached bigint,
+        refreshed_at timestamptz,
+        PRIMARY KEY (snapshot_date, plan_id, cluster_name)
+    );
+    CREATE INDEX IF NOT EXISTS monitoring_national_latest_idx
+        ON {SCHEMA}.monitoring_national (iso3, year, cluster_name, snapshot_date DESC);
     CREATE TABLE IF NOT EXISTS {SCHEMA}.monitoring_periods (
         snapshot_date date,
         plan_id integer,
@@ -325,6 +353,26 @@ def write_monitoring(df, snapshot_date):
 
 def write_monitoring_periods(df, snapshot_date):
     _upsert_snapshot("monitoring_periods", MONITORING_PERIOD_COLS, df, snapshot_date)
+
+
+def write_monitoring_national(df, snapshot_date):
+    _upsert_snapshot("monitoring_national", MONITORING_NATIONAL_COLS, df, snapshot_date)
+
+
+def read_monitoring_national(latest_only=True, cluster=None):
+    """Published national caseloads; by default the most recent snapshot per plan."""
+    where = "WHERE cluster_name = %(cluster)s" if cluster else ""
+    if latest_only:
+        sql = f"""
+        SELECT m.* FROM {SCHEMA}.monitoring_national m
+        JOIN (SELECT plan_id, max(snapshot_date) AS d
+              FROM {SCHEMA}.monitoring_national GROUP BY plan_id) l
+          ON l.plan_id = m.plan_id AND l.d = m.snapshot_date
+        {where}
+        """
+    else:
+        sql = f"SELECT * FROM {SCHEMA}.monitoring_national m {where}"
+    return pd.read_sql(sql, get_engine(), params={"cluster": cluster} if cluster else None)
 
 
 def read_monitoring(latest_only=True, cluster=None):
