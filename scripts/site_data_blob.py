@@ -33,6 +33,7 @@ import ocha_stratus as stratus  # noqa: E402
 from azure.storage.blob import ContentSettings  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.getLogger("azure").setLevel(logging.WARNING)  # no per-request SDK chatter
 logger = logging.getLogger(__name__)
 
 SITE_DATA = Path(__file__).parent.parent / "site" / "data"
