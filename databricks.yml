@@ -19,8 +19,8 @@
 # in this file: the Job Compute policy injects DSCI_AZ_* from the `dsci`
 # secret scope.
 #
-# Extra secrets (not in the policy) that must exist in the dsci scope before
-# the first deploy: HAPI_APP_IDENTIFIER.
+# Extra secrets (not in the policy) are read from the dsci scope at run time by
+# the wrapper (--secret NAME); they must exist there before the first run: HAPI_APP_IDENTIFIER.
 #
 # Data plane: this mirror lives on the DEV DB (+ dev blob) by design, so the
 # prod TARGET (= the live schedule, ephemeral Job Compute) still runs with
@@ -57,8 +57,6 @@ variables:
   policy_id: "000C79D951EAF0D6"
   apply_policy_default_values: true
   num_workers: 1
-  spark_env_vars:
-    HAPI_APP_IDENTIFIER: "{{secrets/dsci/HAPI_APP_IDENTIFIER}}"
 
 # pyproject [project.dependencies]; pandas/pyarrow/requests come with the runtime.
 .libs: &libs
@@ -124,6 +122,8 @@ resources:
               - "scripts/refresh_needs.py"
               - "--stage"
               - "{{job.parameters.stage}}"
+              - "--secret"
+              - "HAPI_APP_IDENTIFIER"
         - task_key: refresh_jiaf
           depends_on:
             - task_key: refresh_hpc

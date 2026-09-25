@@ -7,8 +7,10 @@ Databricks-specific glue:
 
 1. Sets ``STAGE`` (the ocha-stratus data plane: DEV vs PROD DB + blob) plus
    any ``--env`` extras. Credentials are NOT set here: the Job Compute policy
-   injects ``DSCI_AZ_*`` from the ``dsci`` secret scope, and any extra secret
-   the job needs is mapped in via ``spark_env_vars`` in databricks.yml.
+   injects ``DSCI_AZ_*`` from the ``dsci`` secret scope; any extra secret the
+   job needs is read from that scope at run time with ``--secret NAME`` (a
+   missing key fails the task with a readable message rather than stopping
+   the cluster launch, which is what a ``spark_env_vars`` reference does).
 2. Copies ``src`` + ``scripts`` from the wsfs git checkout onto local disk and
    runs from there: importing packages straight off the workspace FUSE mount
    is unreliable (import probing intermittently raises filesystem errors).
@@ -19,6 +21,7 @@ Usage (as the ``spark_python_task`` parameters):
 
     run_task.py scripts/refresh_hpc.py --stage dev
     run_task.py scripts/refresh_hpc.py --stage dev -- --some-script-flag
+    run_task.py scripts/refresh_hpc.py --stage dev --secret HAPI_APP_IDENTIFIER
 """
 
 import argparse
@@ -59,6 +62,20 @@ def _parse(argv):
         metavar="KEY=VALUE",
         help="extra env var for the script (repeatable)",
     )
+    ap.add_argument(
+        "--secret",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="dsci-scope secret to expose as env var NAME (repeatable); missing = fail",
+    )
+    ap.add_argument(
+        "--optional-secret",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="like --secret, but a missing key only logs a warning",
+    )
     ap.epilog = "Everything after a literal `--` is passed through to the script."
     # Split on the first literal "--" ourselves: an argparse REMAINDER
     # positional would swallow --stage/--env as soon as it sees the script.
@@ -70,6 +87,26 @@ def _parse(argv):
     args = ap.parse_args(argv)
     args.script_args = script_args
     return args
+
+
+def _resolve_secrets(env, names, optional=False):
+    """Pull extra secrets from the dsci scope at run time (not via
+    spark_env_vars): a missing or misnamed key then fails THIS task with a
+    readable message instead of stopping the job cluster from launching."""
+    if not names:
+        return
+    from pyspark.dbutils import DBUtils
+    from pyspark.sql import SparkSession
+
+    dbutils = DBUtils(SparkSession.builder.getOrCreate())
+    for name in names:
+        try:
+            env[name] = dbutils.secrets.get(scope="dsci", key=name)
+        except Exception as exc:  # noqa: BLE001 — the SDK raises a generic Py4J error
+            if optional:
+                print(f"[run_task] optional secret dsci/{name} not found; continuing without it")
+                continue
+            raise RuntimeError(f"secret dsci/{name} is missing from the dsci scope: {exc}") from exc
 
 
 def main(argv=None):
@@ -94,13 +131,16 @@ def main(argv=None):
         if not key:
             raise ValueError(f"bad --env {kv!r}; expected KEY=VALUE")
         env[key] = value
+    _resolve_secrets(env, args.secret)
+    _resolve_secrets(env, args.optional_secret, optional=True)
     env["PYTHONPATH"] = local_root + os.pathsep + env.get("PYTHONPATH", "")
     # Unbuffered so the script's prints interleave correctly in the run log.
     env["PYTHONUNBUFFERED"] = "1"
 
     cmd = [sys.executable, os.path.join(local_root, args.script), *args.script_args]
     shown = {k: env[k] for k in ["STAGE", *[kv.partition("=")[0] for kv in args.env]]}
-    print(f"[run_task] script={args.script} env={shown} args={args.script_args}")
+    print(f"[run_task] script={args.script} env={shown} "
+          f"secrets={args.secret + args.optional_secret} args={args.script_args}")
     rc = subprocess.run(cmd, cwd=local_root, env=env, check=False).returncode
     # Databricks treats a top-level SystemExit (even code 0) as a task failure;
     # raise only on non-zero and let success return naturally.
