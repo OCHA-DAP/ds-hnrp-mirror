@@ -1,11 +1,13 @@
 name: Deploy explorer site
 
+# The site data (site/data/**) is exported from the dev DB by the Databricks
+# job in databricks.yml, which parks it on the dev blob; this workflow only
+# copies it down and deploys. GitHub runners no longer talk to the DB (it is
+# reachable only through its private endpoint).
+
 on:
-  workflow_run:
-    workflows: ["Refresh HNRP mirror"]
-    types: [completed]
   schedule:
-    - cron: "0 8 * * *" # daily backstop in case the chain didn't fire
+    - cron: "0 8 * * *" # daily, after the Databricks refresh (04:17 UTC) has landed
   workflow_dispatch:
 
 permissions:
@@ -19,7 +21,6 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -31,13 +32,12 @@ jobs:
         run: |
           uv venv --python 3.12
           uv pip install --no-sources -e .
-      - name: Export site data
+      - name: Fetch site data from blob
         env:
-          DSCI_AZ_DB_DEV_HOST: ${{ secrets.DSCI_AZ_DB_DEV_HOST }}
-          DSCI_AZ_DB_DEV_UID: ${{ secrets.DSCI_AZ_DB_DEV_UID }}
-          DSCI_AZ_DB_DEV_PW: ${{ secrets.DSCI_AZ_DB_DEV_PW }}
-          PGSSLMODE: require
-        run: uv run --no-sync python scripts/export_site_data.py
+          DSCI_AZ_BLOB_DEV_SAS: ${{ secrets.DSCI_AZ_BLOB_DEV_SAS }}
+        run: |
+          test -n "$DSCI_AZ_BLOB_DEV_SAS" || { echo "::error::DSCI_AZ_BLOB_DEV_SAS org secret is not visible to this repo"; exit 1; }
+          uv run --no-sync python scripts/site_data_blob.py download
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

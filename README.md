@@ -66,10 +66,23 @@ snapshots alone. Read the latest with `storage.read_monitoring()`, or take
 `max(snapshot_date)` per `plan_id`; a plan's figures only actually move when its
 `monitoring_periods.latest_update` month does.
 
-## Pipelines (GitHub Actions)
+## Pipelines (Databricks + GitHub Pages)
 
-- **Refresh HNRP mirror** (`refresh-hnrp.yml`) — daily 04:17 UTC refreshes current/previous/next plan years (HPC + FTS), then the admin-level PiN (HAPI + Global HNO adm3), JIAF severity, and subnational monitoring mirrors; Sunday 02:47 UTC runs the full historical backfill. Manual dispatch with `all_years` for an on-demand backfill.
-- **Deploy explorer site** (`deploy-site.yml`) — chains off a successful refresh (plus a daily backstop), exports `site/data/*.json` from the DB and deploys `site/` to GitHub Pages. Nothing is committed; data is regenerated each deploy.
+The dev DB is reachable only through its private endpoint, so everything that
+touches it runs on Databricks; GitHub Actions only deploys the static site.
+
+- **HNRP Mirror** (Databricks job, `databricks.yml`) — daily 04:17 UTC: refreshes current/previous/next plan years (HPC + FTS), then in parallel the admin-level PiN (HAPI + Global HNO adm3), JIAF severity and subnational monitoring mirrors; finally exports `site/data/*.json` and parks it on the dev blob (`projects/ds-hnrp-mirror/site-data/`, `scripts/site_data_blob.py upload`).
+- **HNRP Mirror — weekly full backfill** (Databricks job) — Sundays 02:47 UTC, `refresh_hpc.py --all`. On-demand backfill: `databricks bundle run hnrp_mirror_backfill -t prod -p DEFAULT`.
+- **Deploy explorer site** (`deploy-site.yml`) — daily 08:00 UTC (and on dispatch): copies `site/data/` down from the blob and deploys `site/` to GitHub Pages. Nothing is committed; the site output is identical to when the export ran in the workflow.
+
+Deploying the jobs (config changes only; code ships by pushing `main`):
+
+```bash
+databricks bundle validate -t prod -p DEFAULT
+databricks bundle deploy   -t prod -p DEFAULT
+```
+
+The Job Compute policy injects the `DSCI_AZ_*` DB/blob secrets; `HAPI_APP_IDENTIFIER` must exist in the `dsci` secret scope.
 
 ## Local use
 
