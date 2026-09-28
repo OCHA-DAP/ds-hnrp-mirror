@@ -78,7 +78,7 @@ resources:
         databricks: job
         type: dataset-ingest
         kb: hnrp-mirror
-        output_schema: hpc.plans,hpc.plan_caseloads,hpc.needs_admin,hpc.severity_admin,hpc.pin_admin,hpc.monitoring_admin
+        output_schema: hpc.plans,hpc.plan_caseloads,hpc.needs_admin,hpc.severity_admin,hpc.pin_admin,hpc.monitoring_admin,hpc.monitoring_national,hpc.monitoring_periods
 
       permissions:
         - group_name: dsci
