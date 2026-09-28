@@ -72,12 +72,13 @@ resources:
 
     hnrp_mirror:
       name: HNRP Mirror
-      description: >
-        Daily HNRP/PiN mirror into the dev `hpc` schema (HPC plans + caseloads + FTS funding, then admin-level PiN, JIAF severity and subnational monitoring in parallel), followed by the site-data export to the dev blob for the GitHub Pages explorer.
+      description: "Mirror HNRP plans, caseloads and JIAF severity from the [HPC API](https://api.hpc.tools) and [HAPI](https://hapi.humdata.org/)"
       git_source: *git_source
       tags:
         databricks: job
-        output_schema: hpc
+        type: dataset-ingest
+        kb: hnrp-mirror
+        output_schema: hpc.plans,hpc.plan_caseloads,hpc.needs_admin,hpc.severity_admin,hpc.pin_admin,hpc.monitoring_admin,hpc.monitoring_national,hpc.monitoring_periods
 
       permissions:
         - group_name: dsci
@@ -179,12 +180,13 @@ resources:
 
     hnrp_mirror_backfill:
       name: HNRP Mirror — weekly full backfill
-      description: >
-        Sunday full historical backfill of HPC plans/caseloads/funding (refresh_hpc.py --all). The daily job 90 minutes later refreshes the dependent tables and the site as usual.
+      description: "Full weekly refresh of HPC plans, caseloads and funding from the [HPC API](https://api.hpc.tools)"
       git_source: *git_source
       tags:
         databricks: job
-        output_schema: hpc
+        type: dataset-ingest
+        kb: hnrp-mirror
+        output_schema: hpc.plans,hpc.plan_caseloads
 
       permissions:
         - group_name: dsci
